@@ -220,8 +220,7 @@ def process_img2table_pdf(file_path: str):
         detect_rotation=True,
         pdf_text_extraction=True
     )
-    is_img = is_pdf_image_based(file_path)
-    if is_img:
+    if is_img := is_pdf_image_based(file_path):
         ocr = EasyOCR(lang=["en", "ru"])
         extracted_tables = pdf.extract_tables(
             ocr=ocr,

@@ -1,10 +1,14 @@
 import gradio as gr
-from main2 import process_pdf, process_img
+from gradio_pdf import PDF
+from main2 import process_img2table_pdf, process_img2table_jpg
 
 
-def run_tasks(input_image_, checkbox_, lang_selected_):
-    # return process_pdf(input_image_["background"], lang_selected_)
-    return process_img(input_image_["background"], checkbox_, lang_selected_)
+def run_tasks_pdf(pdf_, lang_selected_):
+    return process_img2table_pdf(pdf_, lang_selected_)
+
+
+def run_tasks_image(input_image_, checkbox_, lang_selected_):
+    return process_img2table_jpg(input_image_["background"], checkbox_, lang_selected_)
 
 
 def get_lang():
@@ -21,14 +25,18 @@ with gr.Blocks() as demo:
     )
 
     with gr.Row():
-        input_image = gr.ImageEditor(label="Загрузка jpg", type="filepath")
-        # file = gr.File()
-        # input_image = gr.Image(label="Загрузка jpg", type="filepath")
-        output_image = gr.Image(label="Выделение текста или таблиц", type="numpy")
-
-    button = gr.Button()
+        with gr.Column():
+            input_pdf = PDF(label="Загрузка pdf")
+            button_pdf = gr.Button()
+        with gr.Column():
+            input_image = gr.ImageEditor(label="Загрузка jpg", type="filepath")
+            button_image = gr.Button()
+        with gr.Column():
+            output_image = gr.Image(label="Выделение текста или таблиц", type="numpy")
     text = gr.Text()
-    button.click(run_tasks, inputs=[input_image, checkbox, lang_selected], outputs=[output_image, text])
+
+    button_pdf.click(run_tasks_pdf, inputs=[input_pdf, lang_selected], outputs=[output_image, text])
+    button_image.click(run_tasks_image, inputs=[input_image, checkbox, lang_selected], outputs=[output_image, text])
 
     gr.Examples(
         examples=[
@@ -37,7 +45,7 @@ with gr.Blocks() as demo:
         ],
         inputs=[input_image, checkbox, lang_selected],
         outputs=[output_image, text],
-        fn=run_tasks,
+        fn=run_tasks_image,
         cache_examples="lazy",
     )
 

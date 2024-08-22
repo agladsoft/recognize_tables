@@ -1,14 +1,15 @@
 import os
 import cv2
 import math
+import fitz
 import easyocr
 from cv2 import Mat
 from numpy import ndarray
 from PyPDF2 import PdfReader
 from typing import Tuple, Any
 from img2table.ocr import EasyOCR
-from img2table.document import Image
 from pdf2image import convert_from_path
+from img2table.document import Image, PDF
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextBoxHorizontal
 
@@ -136,14 +137,25 @@ def extract_text_within_coordinates(pdf_path: str, coordinates: Tuple[int, int, 
     return extracted_text.strip()
 
 
-def process_pdf(file_path: str, lang_selected: list):
+def is_pdf_image_based(pdf_path):
+    doc = fitz.open(pdf_path)
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+        text = page.get_text()
+        if text.strip():  # Если на странице есть текст, то файл не является чистым изображением
+            return False
+    return True  # Если на всех страницах нет текста, то PDF вероятно содержит изображения
+
+
+def process_pdf(file_path: str, pdf, lang_selected: list):
     """
     Основная функция обработки PDF-файла: получение координат текста через easyocr,
     затем чтение текста из PDF по этим координатам через pdfminer.
     """
     # Конечный текст из pdf
     text = ""
-
+    # Конвертируем первую страницу PDF в изображение
+    is_img = is_pdf_image_based(pdf)
     # Получаем координаты текста с использованием easyocr
     text_coordinates, image = get_text_coordinates(file_path, lang_selected)
 
@@ -160,7 +172,7 @@ def process_pdf(file_path: str, lang_selected: list):
     return image, text
 
 
-def process_img(file_path: str, checkbox, lang_selected: list):
+def process_img2table_jpg(file_path: str, checkbox, lang_selected: list):
     # Instantiation of OCR
     ocr = EasyOCR(lang=lang_selected)
     # Instantiation of document, either an image or a PDF
@@ -193,7 +205,55 @@ def process_img(file_path: str, checkbox, lang_selected: list):
                     (0, 0, 0),
                     2
                 )
+    print(text)
     return doc.images[0], text
+
+
+def process_img2table_pdf(file_path: str, lang_selected: list):
+    pdf = PDF(
+        file_path,
+        detect_rotation=True,
+        pdf_text_extraction=True
+    )
+    if is_pdf_image_based(file_path):
+        ocr = EasyOCR(lang=lang_selected)
+        extracted_tables = pdf.extract_tables(
+            ocr=ocr,
+            implicit_rows=False,
+            borderless_tables=False,
+            min_confidence=50
+        )
+    else:
+        ocr = None
+        extracted_tables = pdf.extract_tables(
+            ocr=ocr,
+            implicit_rows=False,
+            borderless_tables=False
+        )
+    pdf.to_xlsx(
+        dest=f"{os.path.basename(file_path)}.xlsx",
+        ocr=ocr,
+        implicit_rows=False,
+        borderless_tables=False,
+        min_confidence=50
+    )
+    text = ""
+    for elems in extracted_tables.values():
+        # Получаем координаты
+        for elem in elems:
+            for i in elem.content:
+                for cell in elem.content[i]:
+                    if cell.value:
+                        text += cell.value + "\n"
+                    cv2.rectangle(
+                        pdf.images[0],
+                        [cell.bbox.x1, cell.bbox.y1],
+                        [cell.bbox.x2, cell.bbox.y2],
+                        (0, 0, 0),
+                        2
+                    )
+    cv2.imwrite(f"{file_path}_rect.jpg", pdf.images[0])
+    return pdf.images[0], text
 
 
 if __name__ == "__main__":
