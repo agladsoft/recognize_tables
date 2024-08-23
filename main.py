@@ -128,9 +128,11 @@ class ImageTableProcessor:
 
 
 class ImageBlocksProcessor:
-    def __init__(self, file_path: str, lang_selected: List[str] = None):
+    def __init__(self, file_path: str, x: float, y: float, lang_selected: List[str] = None):
         self.file_path = file_path
         self.lang_selected = lang_selected or ['en']
+        self.x = x
+        self.y = y
 
     def convert_pdf_to_image(self) -> Tuple[str, Tuple[int, int]]:
         """Конвертация первой страницы PDF в изображение и сохранение его как JPG."""
@@ -190,7 +192,7 @@ class ImageBlocksProcessor:
 
     def process(self):
         """Основная функция обработки PDF или JPG файла."""
-        ocr_processor = OCRProcessor(self.file_path, lang_selected=self.lang_selected)
+        ocr_processor = OCRProcessor(self.file_path, self.x, self.y, lang_selected=self.lang_selected)
         ext = os.path.splitext(self.file_path)[-1].lower()
 
         # Определяем пути и размеры
@@ -224,8 +226,10 @@ class ImageBlocksProcessor:
 
 
 class OCRProcessor:
-    def __init__(self, pdf_path: str, lang_selected: List[str] = None):
+    def __init__(self, pdf_path: str, x: float, y: float, lang_selected: List[str] = None):
         self.pdf_path = pdf_path
+        self.x = x
+        self.y = y
         self.lang_selected = lang_selected or ['en']
         self.reader = easyocr.Reader(self.lang_selected)
 
@@ -233,7 +237,7 @@ class OCRProcessor:
             -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], Mat | ndarray]:
         """Извлечение координат текста из изображения с использованием easyocr."""
         image = cv2.imread(image_path, 0)
-        contours = self.reader.readtext(image, paragraph=True, x_ths=1.0, y_ths=0.6)
+        contours = self.reader.readtext(image, paragraph=True, x_ths=self.x, y_ths=self.y)
         text_coordinates = []
 
         for box, text in contours:

@@ -27,8 +27,8 @@ def run_tasks_image_rect(input_image_, checkbox_, lang_selected_):
     return gr.update(value=processed_img, height=1000), text_, df
 
 
-def run_tasks_pdf_blocks(input_image_, lang_selected_):
-    processed_img, text_, df = ImageBlocksProcessor(input_image_, lang_selected_).process()
+def run_tasks_pdf_blocks(input_image_, x, y, lang_selected_):
+    processed_img, text_, df = ImageBlocksProcessor(input_image_, x, y, lang_selected_).process()
     return gr.update(value=processed_img, height=1000), text_, df
 
 
@@ -74,6 +74,22 @@ with gr.Blocks() as demo:
                         button_image_rect = gr.Button(value="Распознать данные из JPG")
 
             with gr.Tab("Распознавание блоков"):
+                x_ths = gr.Slider(
+                    minimum=0.1,
+                    maximum=10.0,
+                    value=1.0,
+                    step=0.1,
+                    interactive=True,
+                    label="Перемещение по X",
+                )
+                y_ths = gr.Slider(
+                    minimum=0.1,
+                    maximum=10.0,
+                    value=0.6,
+                    step=0.1,
+                    interactive=True,
+                    label="Перемещение по Y"
+                )
                 with gr.Row():
                     with gr.Column():
                         input_file = gr.File(label="pdf,jpg", type="filepath")
@@ -106,7 +122,7 @@ with gr.Blocks() as demo:
     )
     button_file.click(
         fn=run_tasks_pdf_blocks,
-        inputs=[input_file, lang_selected],
+        inputs=[input_file, x_ths, y_ths, lang_selected],
         outputs=[output_image, text, table]
     )
 
