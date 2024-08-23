@@ -2,16 +2,16 @@ import cv2
 import gradio as gr
 from gradio_pdf import PDF
 from gradio_image_prompter import ImagePrompter
-from main import process_img2table_pdf, process_img2table_jpg
+from main import PDFTableProcessor, ImageTableProcessor, ImageBlocksProcessor
 
 
 def run_tasks_pdf(pdf_, checkbox_, lang_selected_):
-    image, text_, df = process_img2table_pdf(pdf_, not checkbox_, lang_selected_)
+    image, text_, df = PDFTableProcessor(pdf_, not checkbox_, lang_selected_).process()
     return gr.update(value=image, height=1000), text_, df
 
 
 def run_tasks_image(input_image_, checkbox_, lang_selected_):
-    processed_img, text_, df = process_img2table_jpg(input_image_["background"], not checkbox_, lang_selected_)
+    processed_img, text_, df = ImageTableProcessor(input_image_["background"], not checkbox_, lang_selected_).process()
     return gr.update(value=processed_img, height=1000), text_, df
 
 
@@ -23,7 +23,12 @@ def run_tasks_image_rect(input_image_, checkbox_, lang_selected_):
         # Рисуем прямоугольник
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
     cv2.imwrite(input_image_["image"], image)
-    processed_img, text_, df = process_img2table_jpg(input_image_["image"], not checkbox_, lang_selected_)
+    processed_img, text_, df = ImageTableProcessor(input_image_["image"], not checkbox_, lang_selected_).process()
+    return gr.update(value=processed_img, height=1000), text_, df
+
+
+def run_tasks_pdf_blocks(input_image_, lang_selected_):
+    processed_img, text_, df = ImageBlocksProcessor(input_image_, lang_selected_).process()
     return gr.update(value=processed_img, height=1000), text_, df
 
 
@@ -68,6 +73,12 @@ with gr.Blocks() as demo:
                         input_image_rect = ImagePrompter(label="jpg", type="filepath")
                         button_image_rect = gr.Button(value="Распознать данные из JPG")
 
+            with gr.Tab("Распознавание блоков"):
+                with gr.Row():
+                    with gr.Column():
+                        input_file = gr.File(label="pdf,jpg", type="filepath")
+                        button_file = gr.Button(value="Распознать данные")
+
         with gr.Column():
             gr.HTML(f'<div style="margin-top:{vertical_offset}px;"></div>')  # Добавление отступа сверху
             output_image = gr.Image(label="Выделение текста или таблиц", type="numpy")
@@ -91,6 +102,11 @@ with gr.Blocks() as demo:
     button_image_rect.click(
         fn=run_tasks_image_rect,
         inputs=[input_image_rect, checkbox, lang_selected],
+        outputs=[output_image, text, table]
+    )
+    button_file.click(
+        fn=run_tasks_pdf_blocks,
+        inputs=[input_file, lang_selected],
         outputs=[output_image, text, table]
     )
 
