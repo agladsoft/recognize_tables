@@ -1,7 +1,7 @@
 import os
 import cv2
-import math
 import fitz
+import math
 import easyocr
 from cv2 import Mat
 from numpy import ndarray
@@ -38,15 +38,14 @@ def get_pdf_page_size(pdf_path: str) -> Tuple[int, int]:
     return width, height
 
 
-def get_text_coordinates(image_path: str, lang_selected: list) \
-        -> tuple[list[tuple[tuple[int, int, int, int], Any]], Mat | ndarray]:
+def get_text_coordinates(image_path: str) -> tuple[list[tuple[tuple[int, int, int, int], Any]], Mat | ndarray]:
     """
     Извлечение координат текста из изображения с использованием easyocr.
     Возвращает список координат и распознанного текста.
     """
-    reader = easyocr.Reader(lang_selected)
+    reader = easyocr.Reader(['en'])
     image = cv2.imread(image_path, 0)
-    contours = reader.readtext(image, paragraph=True, x_ths=1.0, y_ths=0.6)
+    contours = reader.readtext(image, paragraph=True, x_ths=0.8, y_ths=0.4)
     text_coordinates = []
 
     for box, text in contours:
@@ -147,48 +146,54 @@ def is_pdf_image_based(pdf_path):
     return True  # Если на всех страницах нет текста, то PDF вероятно содержит изображения
 
 
-def process_pdf(file_path: str, pdf, lang_selected: list):
+def process_easyocr_pdf(file_path: str):
     """
     Основная функция обработки PDF-файла: получение координат текста через easyocr,
     затем чтение текста из PDF по этим координатам через pdfminer.
     """
     # Конечный текст из pdf
     text = ""
-    # Конвертируем первую страницу PDF в изображение
-    is_img = is_pdf_image_based(pdf)
+
+    # Конвертируем PDF в изображение и получаем размеры
+    image_path, img_size = convert_pdf_to_image(file_path)
+
+    # Получаем размеры страницы PDF
+    pdf_size = get_pdf_page_size(file_path)
+
     # Получаем координаты текста с использованием easyocr
-    text_coordinates, image = get_text_coordinates(file_path, lang_selected)
+    text_coordinates, image = get_text_coordinates(image_path)
 
     # Извлекаем текст из PDF на основе координат
     for coords, ocr_text in text_coordinates:
         # Преобразуем координаты в систему координат PDF
-        # pdf_coords = adjust_coordinates(coords, img_size, pdf_size)
-        # extracted_text = extract_text_within_coordinates(file_path, coords)
-        print(f"Координаты блока: {coords}")
+        pdf_coords = adjust_coordinates(coords, img_size, pdf_size)
+        extracted_text = extract_text_within_coordinates(file_path, pdf_coords)
+        print(f"Координаты блока: {pdf_coords}")
         print(f"OCR текст: {ocr_text}")
+        print(f"PDF текст: {extracted_text}")
         print("-" * 40)
-        text += ocr_text + "\n\n"
+        text += extracted_text + "\n\n"
     print(text)
-    return image, text
+    return image
 
 
-def process_img2table_jpg(file_path: str, checkbox, lang_selected: list):
+def process_img2table_jpg(file_path: str):
     # Instantiation of OCR
-    ocr = EasyOCR(lang=lang_selected)
+    ocr = EasyOCR(lang=["en", "ru"])
     # Instantiation of document, either an image or a PDF
     doc = Image(file_path)
     # Table extraction
     extracted_tables = doc.extract_tables(
         ocr=ocr,
         implicit_rows=False,
-        borderless_tables=checkbox,
+        borderless_tables=False,
         min_confidence=50
     )
     doc.to_xlsx(
         dest=f"{os.path.basename(file_path)}.xlsx",
         ocr=ocr,
         implicit_rows=False,
-        borderless_tables=True,
+        borderless_tables=False,
         min_confidence=50
     )
     text = ""
@@ -205,18 +210,18 @@ def process_img2table_jpg(file_path: str, checkbox, lang_selected: list):
                     (0, 0, 0),
                     2
                 )
-    print(text)
+    cv2.imwrite(f"{file_path}_rect.jpg", doc.images[0])
     return doc.images[0], text
 
 
-def process_img2table_pdf(file_path: str, lang_selected: list):
+def process_img2table_pdf(file_path: str):
     pdf = PDF(
         file_path,
         detect_rotation=True,
         pdf_text_extraction=True
     )
     if is_pdf_image_based(file_path):
-        ocr = EasyOCR(lang=lang_selected)
+        ocr = EasyOCR(lang=["en", "ru"])
         extracted_tables = pdf.extract_tables(
             ocr=ocr,
             implicit_rows=False,
@@ -259,4 +264,6 @@ def process_img2table_pdf(file_path: str, lang_selected: list):
 if __name__ == "__main__":
     # Запуск процесса для указанного PDF-файла
     offset = 8
-    process_pdf("/home/timur/PycharmWork/project_IDP/directory_files/files/pdf/pdf-page0.pdf")
+    # process_easyocr_pdf("/home/timur/Загрузки/Коносамент 3.pdf")
+    process_img2table_jpg("/home/timur/Документы/комерсанты/ТН - CMR.pdf_0.jpg")
+    # process_img2table_pdf("/home/timur/Документы/комерсанты/ТН - CMR.pdf")
