@@ -43,7 +43,7 @@ class PDFTableProcessor:
                 return False
         return True
 
-    def extract_tables(self):
+    def extract_tables(self, path_to_excel):
         """Извлечение таблиц из PDF файла и сохранение в Excel."""
         extracted_tables = self.pdf.extract_tables(
             ocr=self.ocr,
@@ -52,7 +52,7 @@ class PDFTableProcessor:
             min_confidence=50
         )
         self.pdf.to_xlsx(
-            dest=f"{os.path.basename(self.file_path)}.xlsx",
+            dest=path_to_excel,
             ocr=self.ocr,
             implicit_rows=False,
             borderless_tables=self.checkbox,
@@ -62,14 +62,15 @@ class PDFTableProcessor:
 
     def process(self):
         """Основной метод обработки PDF файла."""
-        extracted_tables = self.extract_tables()
-        text = ""
-        for elems in extracted_tables.values():
+        dict_boxes, text = {}, ""
+        path_to_excel = f"{self.file_path}.xlsx"
+        for elems in self.extract_tables(path_to_excel).values():
             for elem in elems:
                 for i in elem.content:
                     for cell in elem.content[i]:
-                        if cell.value:
-                            text += cell.value + "\n"
+                        if cell.value and (cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2) not in dict_boxes:
+                            text += cell.value.replace("\n", " ") + "\n\n"
+                            dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
                         cv2.rectangle(
                             self.pdf.images[0],
                             [cell.bbox.x1, cell.bbox.y1],
@@ -78,8 +79,8 @@ class PDFTableProcessor:
                             2
                         )
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
-        df = ExcelHelper.combine_excel_sheets(f"{os.path.basename(self.file_path)}.xlsx")
-        return self.pdf.images[0], text, df
+        df = ExcelHelper.combine_excel_sheets(path_to_excel)
+        return self.pdf.images[0], text, df, path_to_excel
 
 
 class ImageTableProcessor:
@@ -90,7 +91,7 @@ class ImageTableProcessor:
         self.ocr = EasyOCR(lang=self.lang_selected)
         self.doc = Image(file_path)
 
-    def extract_tables(self):
+    def extract_tables(self, path_to_excel):
         """Извлечение таблиц из изображения и сохранение в Excel."""
         extracted_tables = self.doc.extract_tables(
             ocr=self.ocr,
@@ -99,7 +100,7 @@ class ImageTableProcessor:
             min_confidence=50
         )
         self.doc.to_xlsx(
-            dest=f"{os.path.basename(self.file_path)}.xlsx",
+            dest=path_to_excel,
             ocr=self.ocr,
             implicit_rows=False,
             borderless_tables=self.checkbox,
@@ -109,13 +110,14 @@ class ImageTableProcessor:
 
     def process(self):
         """Основной метод обработки изображения."""
-        extracted_tables = self.extract_tables()
-        text = ""
-        for elem in extracted_tables:
+        dict_boxes, text = {}, ""
+        path_to_excel = f"{self.file_path}.xlsx"
+        for elem in self.extract_tables(path_to_excel):
             for i in elem.content:
                 for cell in elem.content[i]:
-                    if cell.value:
-                        text += cell.value + "\n"
+                    if cell.value and (cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2) not in dict_boxes:
+                        text += cell.value.replace("\n", " ") + "\n\n"
+                        dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
                     cv2.rectangle(
                         self.doc.images[0],
                         [cell.bbox.x1, cell.bbox.y1],
@@ -123,8 +125,9 @@ class ImageTableProcessor:
                         (0, 0, 0),
                         2
                     )
-        df = ExcelHelper.combine_excel_sheets(f"{os.path.basename(self.file_path)}.xlsx")
-        return self.doc.images[0], text, df
+        cv2.imwrite(f"{self.file_path}_rect.jpg", self.doc.images[0])
+        df = ExcelHelper.combine_excel_sheets(path_to_excel)
+        return self.doc.images[0], text, df, path_to_excel
 
 
 class ImageBlocksProcessor:
@@ -227,9 +230,9 @@ class ImageBlocksProcessor:
 
 class OCRProcessor:
     def __init__(self, pdf_path: str, x: float, y: float, lang_selected: List[str] = None):
-        self.pdf_path = pdf_path
         self.x = x
         self.y = y
+        self.pdf_path = pdf_path
         self.lang_selected = lang_selected or ['en']
         self.reader = easyocr.Reader(self.lang_selected)
 

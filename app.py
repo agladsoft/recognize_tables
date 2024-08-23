@@ -1,3 +1,5 @@
+import os.path
+
 import cv2
 import gradio as gr
 from gradio_pdf import PDF
@@ -5,31 +7,41 @@ from gradio_image_prompter import ImagePrompter
 from main import PDFTableProcessor, ImageTableProcessor, ImageBlocksProcessor
 
 
-def run_tasks_pdf(pdf_, checkbox_, lang_selected_):
-    image, text_, df = PDFTableProcessor(pdf_, not checkbox_, lang_selected_).process()
-    return gr.update(value=image, height=1000), text_, df
+def run_tasks_pdf(pdf, checkbox_, lang_selected_):
+    image, text_, df, path_to_excel = PDFTableProcessor(pdf, not checkbox_, lang_selected_).process()
+    url = f'<a href="file/{path_to_excel}" target="_blank" ' \
+          f'rel="noopener noreferrer">{os.path.basename(path_to_excel)}</a>'
+    return gr.update(value=image, height=1000), text_, df, url
 
 
-def run_tasks_image(input_image_, checkbox_, lang_selected_):
-    processed_img, text_, df = ImageTableProcessor(input_image_["background"], not checkbox_, lang_selected_).process()
-    return gr.update(value=processed_img, height=1000), text_, df
+def run_tasks_image(input_img, checkbox_, lang_selected_):
+    image, text_, df, path_to_excel = ImageTableProcessor(
+        input_img["background"],
+        not checkbox_,
+        lang_selected_
+    ).process()
+    url = f'<a href="file/{path_to_excel}" target="_blank" ' \
+          f'rel="noopener noreferrer">{os.path.basename(path_to_excel)}</a>'
+    return gr.update(value=image, height=1000), text_, df, url
 
 
-def run_tasks_image_rect(input_image_, checkbox_, lang_selected_):
-    image = cv2.imread(input_image_["image"])
-    for point in input_image_["points"]:
+def run_tasks_image_rect(input_img, checkbox_, lang_selected_):
+    image = cv2.imread(input_img["image"])
+    for point in input_img["points"]:
         x1, y1, _, x2, y2, _ = point  # Распаковка координат
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         # Рисуем прямоугольник
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    cv2.imwrite(input_image_["image"], image)
-    processed_img, text_, df = ImageTableProcessor(input_image_["image"], not checkbox_, lang_selected_).process()
-    return gr.update(value=processed_img, height=1000), text_, df
+    cv2.imwrite(input_img["image"], image)
+    image, text_, df, path_to_excel = ImageTableProcessor(input_img["image"], not checkbox_, lang_selected_).process()
+    url = f'<a href="file/{path_to_excel}" target="_blank" ' \
+          f'rel="noopener noreferrer">{os.path.basename(path_to_excel)}</a>'
+    return gr.update(value=image, height=1000), text_, df, url
 
 
-def run_tasks_pdf_blocks(input_image_, x, y, lang_selected_):
-    processed_img, text_, df = ImageBlocksProcessor(input_image_, x, y, lang_selected_).process()
-    return gr.update(value=processed_img, height=1000), text_, df
+def run_tasks_pdf_blocks(input_img, x, y, lang_selected_):
+    processed_img, text_, df = ImageBlocksProcessor(input_img, x, y, lang_selected_).process()
+    return gr.update(value=processed_img, height=1000), text_, df, None
 
 
 def get_lang():
@@ -99,6 +111,7 @@ with gr.Blocks() as demo:
             gr.HTML(f'<div style="margin-top:{vertical_offset}px;"></div>')  # Добавление отступа сверху
             output_image = gr.Image(label="Выделение текста или таблиц", type="numpy")
 
+    url_to_excel = gr.HTML()
     table = gr.DataFrame(
         interactive=False,
         wrap=True,
@@ -108,22 +121,22 @@ with gr.Blocks() as demo:
     button_pdf.click(
         fn=run_tasks_pdf,
         inputs=[input_pdf, checkbox, lang_selected],
-        outputs=[output_image, text, table]
+        outputs=[output_image, text, table, url_to_excel]
     )
     button_image.click(
         fn=run_tasks_image,
         inputs=[input_image, checkbox, lang_selected],
-        outputs=[output_image, text, table]
+        outputs=[output_image, text, table, url_to_excel]
     )
     button_image_rect.click(
         fn=run_tasks_image_rect,
         inputs=[input_image_rect, checkbox, lang_selected],
-        outputs=[output_image, text, table]
+        outputs=[output_image, text, table, url_to_excel]
     )
     button_file.click(
         fn=run_tasks_pdf_blocks,
         inputs=[input_file, x_ths, y_ths, lang_selected],
-        outputs=[output_image, text, table]
+        outputs=[output_image, text, table, url_to_excel]
     )
 
     gr.Examples(
