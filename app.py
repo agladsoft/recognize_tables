@@ -8,7 +8,8 @@ from gradio_image_prompter import ImagePrompter
 from main import PDFTableProcessor, ImageTableProcessor, ImageBlocksProcessor
 
 # Шаблон для ссылки на excel-файл
-excel_link_template: str = 'Ссылка на Excel-файл: <a href="file/{0}" target="_blank" rel="noopener noreferrer">{1}</a>'
+excel_link_template: str = '<h3>Ссылка на Excel-файл: <a href="file/{0}" target="_blank" ' \
+                           'rel="noopener noreferrer">{1}</a></h3>'
 
 
 def process_pdf(pdf_file: str, is_table_bordered: bool, selected_languages: List[str]) \
@@ -106,22 +107,25 @@ def validate_languages(selected_languages: List[str]) -> gr.update:
 
 
 with gr.Blocks() as demo:
-    # Checkbox для определения наличия структуры у таблицы
-    table_structure_checkbox = gr.Checkbox(
-        value=True,
-        show_label=True,
-        info="Если у таблицы есть структура, установите галочку",
-        label="Таблица со структурой"
-    )
-
-    # Dropdown для выбора языков
-    language_selector = gr.Dropdown(
-        choices=get_supported_languages(),
-        info="Китайский язык нужно использовать отдельно от других или только с английским",
-        label="Выберите языки",
-        value=["en"],
-        multiselect=True
-    )
+    logo_svg = "<img src='https://i.ibb.co/zJvk1NV/OCR-3.png' width='80px' style='display: inline'>"
+    gr.HTML(f"<h1><center>{logo_svg} Распознавание таблиц и текста из PDF и изображений</center></h1>")
+    gr.HTML("<h2><center>Выберите тип загрузки и нажмите на кнопку для обработки</center></h2>")
+    with gr.Row():
+        # Dropdown для выбора языков
+        language_selector = gr.Dropdown(
+            choices=get_supported_languages(),
+            info="Китайский язык нужно использовать отдельно от других или только с английским",
+            label="Выберите языки",
+            value=["en"],
+            multiselect=True
+        )
+        # Checkbox для определения наличия структуры у таблицы
+        table_structure_checkbox = gr.Checkbox(
+            value=True,
+            show_label=True,
+            info="Если у таблицы есть структура, установите галочку",
+            label="Таблица со структурой"
+        )
 
     language_selector.change(
         fn=validate_languages,
@@ -210,6 +214,7 @@ with gr.Blocks() as demo:
             ["/home/timur/PycharmWork/project_IDP/directory_files/files/pdf/pdf-page0.jpg"],
             ["/home/timur/PycharmWork/project_IDP/directory_files/files/pdf/pdf-page1.jpg"]
         ],
+        label="Примеры",
         fn=process_image,
         inputs=[image_input, table_structure_checkbox, language_selector],
         outputs=[output_image_display, extracted_text_display, data_table]
