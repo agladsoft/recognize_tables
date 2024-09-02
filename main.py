@@ -2,288 +2,26 @@ import os
 import cv2
 import math
 import fitz
-import easyocr
+import numpy as np
 import pandas as pd
 from cv2 import Mat
 from numpy import ndarray
 from PyPDF2 import PdfReader
 from pandas import DataFrame
-from img2table.ocr import EasyOCR
 from pdf2image import convert_from_path
 from img2table.document import Image, PDF
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextBoxHorizontal
-from typing import Tuple, Any, List, Optional, Dict
-from img2table.tables.objects.extraction import ExtractedTable
+from typing import Tuple, Any, List, Optional, Union
+from img2table.ocr import EasyOCR, TesseractOCR, PaddleOCR, DocTR
 
 
-class ExcelHelper:
-    @staticmethod
-    def combine_excel_sheets(file_path: str) -> DataFrame:
-        """
-        Чтение всех листов из Excel-файла и их объединение в один DataFrame.
-        :param file_path: Путь к Excel-файлу.
-        :return: Содержимое всех листов в виде DataFrame.
-        """
-        sheets = pd.read_excel(file_path, sheet_name=None)
-        dfs = list(sheets.values())
-        return pd.concat(dfs, ignore_index=True)
+class OCRBase:
+    def __init__(self, lang: Union[List[str], str] = 'en'):
+        self.lang = lang
 
-
-class PDFTableProcessor:
-    def __init__(self, file_path: str, checkbox: bool = False, lang_selected: Optional[list] = None):
-        self.file_path = file_path
-        self.checkbox = checkbox
-        self.lang_selected = lang_selected or ['en']
-        self.pdf = PDF(file_path, detect_rotation=True, pdf_text_extraction=True)
-        self.ocr = EasyOCR(lang=self.lang_selected) if self.is_image_based_pdf(file_path) else None
-
-    @staticmethod
-    def is_image_based_pdf(file_path: str) -> bool:
-        """
-        Проверка, является ли PDF файл изображением.
-        :param file_path: Путь к PDF файлу.
-        :return: True, если PDF содержит изображения, иначе False.
-        """
-        doc = fitz.open(file_path)
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            text = page.get_text()
-            if text.strip():
-                return False
-        return True
-
-    def extract_tables(self, path_to_excel: str) -> Dict[int, List[ExtractedTable]]:
-        """
-        Извлечение таблиц из PDF файла и сохранение в Excel.
-        :param path_to_excel: Путь к Excel-файлу.
-        :return: Словарь с извлеченными таблицами.
-        """
-        extracted_tables = self.pdf.extract_tables(
-            ocr=self.ocr,
-            implicit_rows=False,
-            borderless_tables=self.checkbox,
-            min_confidence=50
-        )
-        self.pdf.to_xlsx(
-            dest=path_to_excel,
-            ocr=self.ocr,
-            implicit_rows=False,
-            borderless_tables=self.checkbox,
-            min_confidence=50
-        )
-        return extracted_tables
-
-    def process(self) -> Tuple[Mat | ndarray, str, DataFrame, str]:
-        """
-        Основной метод обработки PDF файла.
-        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
-        """
-        dict_boxes, text = {}, ""
-        path_to_excel = f"{self.file_path}.xlsx"
-        for elems in self.extract_tables(path_to_excel).values():
-            for elem in elems:
-                for i in elem.content:
-                    for cell in elem.content[i]:
-                        if cell.value and (cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2) not in dict_boxes:
-                            text += cell.value.replace("\n", " ") + "\n\n"
-                            dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
-                        cv2.rectangle(
-                            self.pdf.images[0],
-                            [cell.bbox.x1, cell.bbox.y1],
-                            [cell.bbox.x2, cell.bbox.y2],
-                            (0, 0, 0),
-                            2
-                        )
-        cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
-        df = ExcelHelper.combine_excel_sheets(path_to_excel)
-        return self.pdf.images[0], text, df, path_to_excel
-
-
-class ImageTableProcessor:
-    def __init__(self, file_path: str, checkbox: bool = False, lang_selected: Optional[list] = None):
-        self.file_path = file_path
-        self.checkbox = checkbox
-        self.lang_selected = lang_selected or ['en']
-        self.ocr = EasyOCR(lang=self.lang_selected)
-        self.img = Image(file_path, detect_rotation=True)
-
-    def extract_tables(self, path_to_excel: str) -> List[ExtractedTable]:
-        """
-        Извлечение таблиц из изображения и сохранение в Excel.
-        :param path_to_excel: Путь к Excel-файлу.
-        :return: Список с извлеченными таблицами.
-        """
-        extracted_tables = self.img.extract_tables(
-            ocr=self.ocr,
-            implicit_rows=False,
-            borderless_tables=self.checkbox,
-            min_confidence=50
-        )
-        self.img.to_xlsx(
-            dest=path_to_excel,
-            ocr=self.ocr,
-            implicit_rows=False,
-            borderless_tables=self.checkbox,
-            min_confidence=50
-        )
-        return extracted_tables
-
-    def process(self) -> Tuple[Mat | ndarray, str, DataFrame, str]:
-        """
-        Основной метод обработки изображения.
-        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
-        """
-        dict_boxes, text = {}, ""
-        path_to_excel = f"{self.file_path}.xlsx"
-        for elem in self.extract_tables(path_to_excel):
-            for i in elem.content:
-                for cell in elem.content[i]:
-                    if cell.value and (cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2) not in dict_boxes:
-                        text += cell.value.replace("\n", " ") + "\n\n"
-                        dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
-                    cv2.rectangle(
-                        self.img.images[0],
-                        [cell.bbox.x1, cell.bbox.y1],
-                        [cell.bbox.x2, cell.bbox.y2],
-                        (0, 0, 0),
-                        2
-                    )
-        cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
-        df = ExcelHelper.combine_excel_sheets(path_to_excel)
-        return self.img.images[0], text, df, path_to_excel
-
-
-class ImageBlocksProcessor:
-    def __init__(self, file_path: str, x_shift: float, y_shift: float, lang_selected: List[str] = None):
-        self.file_path = file_path
-        self.lang_selected = lang_selected or ['en']
-        self.x_shift = x_shift
-        self.y_shift = y_shift
-
-    def convert_pdf_to_image(self) -> Tuple[str, Tuple[int, int]]:
-        """
-        Конвертация первой страницы PDF в изображение и сохранение его как JPG.
-        :return: Расположение изображения и его размеры.
-        """
-        images = convert_from_path(self.file_path)
-        image_path = f'{os.path.splitext(self.file_path)[0]}.jpg'
-        images[0].save(image_path, 'JPEG')
-        image_size = images[0].size  # (width, height)
-        return image_path, image_size
-
-    def get_pdf_page_size(self) -> Tuple[int, int]:
-        """
-        Получает размеры страницы PDF в точках (points).
-        :return: Ширина и высота страницы.
-        """
-        reader = PdfReader(self.file_path)
-        first_page = reader.pages[0]
-        width = int(first_page.mediabox.width)
-        height = int(first_page.mediabox.height)
-        return width, height
-
-    def extract_text_within_coordinates(self, coordinates: Tuple[int, int, int, int]) -> str:
-        """
-        Извлечение текста из PDF внутри заданных координат с использованием pdfminer.
-        :param coordinates: Координаты текста (x1, y1, x2, y2).
-        :return: Извлеченный текст.
-        """
-        x1, y1, x2, y2 = coordinates
-        extracted_text = ""
-
-        for page_layout in extract_pages(self.file_path):
-            for element in page_layout:
-                if isinstance(element, LTTextBoxHorizontal):
-                    for text_line in element:
-                        line_x1 = math.floor(text_line.bbox[0])
-                        line_y1 = math.floor(text_line.bbox[1])
-                        line_x2 = math.floor(text_line.bbox[2])
-                        line_y2 = math.floor(text_line.bbox[3])
-
-                        line_text = text_line.get_text()
-
-                        # Корректируем `x1` и `x2` на основе пробелов
-                        line_x1_adjusted, line_x2_adjusted = CoordinateAdjuster.adjust_for_spaces(
-                            line_text, line_x1, line_x2
-                        )
-
-                        # Проверка координат с учетом коррекции
-                        if x1 <= line_x1_adjusted + CoordinateAdjuster.offset \
-                                and y1 <= line_y1 + CoordinateAdjuster.offset \
-                                and x2 + CoordinateAdjuster.offset >= line_x2_adjusted \
-                                and y2 + CoordinateAdjuster.offset >= line_y2:
-                            extracted_text += f"{line_text.strip()} "
-
-        return extracted_text.strip()
-
-    def process(self) -> Tuple[Mat | ndarray, str, DataFrame]:
-        """
-        Основная функция обработки PDF или JPG файла.
-        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame.
-        """
-        ocr_processor = OCRProcessor(self.file_path, self.x_shift, self.y_shift, lang_selected=self.lang_selected)
-        ext = os.path.splitext(self.file_path)[-1].lower()
-
-        # Определяем пути и размеры
-        if ext == ".pdf" and not PDFTableProcessor.is_image_based_pdf(self.file_path):
-            image_path, img_size = self.convert_pdf_to_image()
-            pdf_size = self.get_pdf_page_size()
-            convert_coord = True
-        elif ext == ".pdf" and PDFTableProcessor.is_image_based_pdf(self.file_path):
-            image_path, img_size = self.convert_pdf_to_image()
-            pdf_size = img_size
-            convert_coord = False
-        else:
-            image_path = self.file_path
-            img_size = cv2.imread(image_path).shape[1::-1]  # (width, height)
-            pdf_size = img_size
-            convert_coord = False
-
-        # Получаем координаты текста и OCR результат
-        text_coordinates, image = ocr_processor.get_text_coordinates(image_path)
-
-        # Извлекаем текст
-        text = ""
-        for coord, ocr_text in text_coordinates:
-            if convert_coord:
-                pdf_coord = CoordinateAdjuster.adjust_coordinates(coord, img_size, pdf_size)
-                text += self.extract_text_within_coordinates(pdf_coord) + "\n\n"
-            else:
-                text += ocr_text + "\n\n"
-
-        return image, text, pd.DataFrame()
-
-
-class OCRProcessor:
-    def __init__(self, pdf_path: str, x: float, y: float, lang_selected: List[str] = None):
-        self.x = x
-        self.y = y
-        self.pdf_path = pdf_path
-        self.lang_selected = lang_selected or ['en']
-        self.reader = easyocr.Reader(self.lang_selected)
-
-    def get_text_coordinates(self, image_path: str) \
-            -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], Mat | ndarray]:
-        """
-        Извлечение координат текста из изображения с использованием easyocr.
-        :param image_path: Путь к изображению.
-        :return: Список координат и распознанного текста, изображение с выделенными прямоугольниками.
-        """
-        image = cv2.imread(image_path, 0)
-        contours = self.reader.readtext(image, paragraph=True, x_ths=self.x, y_ths=self.y)
-        text_coordinates = []
-
-        for box, text in contours:
-            # Получаем координаты
-            top_left, top_right, bottom_right, bottom_left = box
-            x1, y1 = int(top_left[0]), int(top_left[1])
-            x2, y2 = int(bottom_right[0]), int(bottom_right[1])
-            text_coordinates.append(((x1, y1, x2, y2), text))
-            cv2.rectangle(image, top_left, bottom_right, (0, 0, 0), 2)
-        cv2.imwrite(f"{image_path}_rect.jpg", image)
-
-        return text_coordinates, image
+    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+        raise NotImplementedError("OCR method not implemented!")
 
 
 class CoordinateAdjuster:
@@ -340,3 +78,447 @@ class CoordinateAdjuster:
         line_x2_adjusted = line_x2 - num_trailing_spaces * space_width
 
         return line_x1_adjusted, line_x2_adjusted
+
+
+class EasyOCREngine(OCRBase):
+    def __init__(self, lang: Union[List[str], str] = 'en', x_shift: float = 1.0, y_shift: float = 0.6):
+        super().__init__(lang)
+        import easyocr
+        self.ocr = easyocr.Reader(lang)
+        self.x_shift = x_shift
+        self.y_shift = y_shift
+
+    @staticmethod
+    def convert_pdf_to_image(file_path: str) -> Tuple[str, Tuple[int, int]]:
+        """
+        Конвертация первой страницы PDF в изображение и сохранение его как JPG.
+        :return: Расположение изображения и его размеры.
+        """
+        images = convert_from_path(file_path)
+        image_path = f'{os.path.splitext(file_path)[0]}.jpg'
+        images[0].save(image_path, 'JPEG')
+        image_size = images[0].size  # (width, height)
+        return image_path, image_size
+
+    @staticmethod
+    def get_pdf_page_size(file_path: str) -> Tuple[int, int]:
+        """
+        Получает размеры страницы PDF в точках (points).
+        :return: Ширина и высота страницы.
+        """
+        reader = PdfReader(file_path)
+        first_page = reader.pages[0]
+        width = int(first_page.mediabox.width)
+        height = int(first_page.mediabox.height)
+        return width, height
+
+    @staticmethod
+    def extract_text_within_coordinates(file_path: str, coordinates: Tuple[int, int, int, int]) -> str:
+        """
+        Извлечение текста из PDF внутри заданных координат с использованием pdfminer.
+        :param file_path: Путь к файлу.
+        :param coordinates: Координаты текста (x1, y1, x2, y2).
+        :return: Извлеченный текст.
+        """
+        x1, y1, x2, y2 = coordinates
+        extracted_text = ""
+
+        for page_layout in extract_pages(file_path):
+            for element in page_layout:
+                if isinstance(element, LTTextBoxHorizontal):
+                    for text_line in element:
+                        line_x1 = math.floor(text_line.bbox[0])
+                        line_y1 = math.floor(text_line.bbox[1])
+                        line_x2 = math.floor(text_line.bbox[2])
+                        line_y2 = math.floor(text_line.bbox[3])
+
+                        line_text = text_line.get_text()
+
+                        # Корректируем `x1` и `x2` на основе пробелов
+                        line_x1_adjusted, line_x2_adjusted = CoordinateAdjuster.adjust_for_spaces(
+                            line_text, line_x1, line_x2
+                        )
+
+                        # Проверка координат с учетом коррекции
+                        if x1 <= line_x1_adjusted + CoordinateAdjuster.offset \
+                                and y1 <= line_y1 + CoordinateAdjuster.offset \
+                                and x2 + CoordinateAdjuster.offset >= line_x2_adjusted \
+                                and y2 + CoordinateAdjuster.offset >= line_y2:
+                            extracted_text += f"{line_text.strip()} "
+
+        return extracted_text.strip()
+
+    def get_text_coordinates(self, image_path: str) \
+            -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], Mat | ndarray]:
+        """
+        Извлечение координат текста из изображения с использованием easyocr.
+        :param image_path: Путь к изображению.
+        :return: Список координат и распознанного текста, изображение с выделенными прямоугольниками.
+        """
+        image = cv2.imread(image_path, 0)
+        contours = self.ocr.readtext(image, paragraph=True, x_ths=self.x_shift, y_ths=self.y_shift)
+        text_coordinates = []
+
+        for box, text in contours:
+            # Получаем координаты
+            top_left, top_right, bottom_right, bottom_left = box
+            x1, y1 = int(top_left[0]), int(top_left[1])
+            x2, y2 = int(bottom_right[0]), int(bottom_right[1])
+            text_coordinates.append(((x1, y1, x2, y2), text))
+            cv2.rectangle(image, top_left, bottom_right, (0, 0, 0), 2)
+        cv2.imwrite(f"{image_path}_rect.jpg", image)
+
+        return text_coordinates, image
+
+    def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
+        """
+        Выполнение OCR с помощью EasyOCR.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        ext = os.path.splitext(file_path)[-1].lower()
+
+        # Определяем пути и размеры
+        if ext == ".pdf" and not PDFProcessor.is_image_based_pdf(file_path):
+            image_path, img_size = self.convert_pdf_to_image(file_path)
+            pdf_size = self.get_pdf_page_size(file_path)
+            convert_coord = True
+        elif ext == ".pdf" and PDFProcessor.is_image_based_pdf(file_path):
+            image_path, img_size = self.convert_pdf_to_image(file_path)
+            pdf_size = img_size
+            convert_coord = False
+        else:
+            image_path = file_path
+            img_size = cv2.imread(image_path).shape[1::-1]  # (width, height)
+            pdf_size = img_size
+            convert_coord = False
+
+        # Получаем координаты текста и OCR результат
+        text_coordinates, image = self.get_text_coordinates(image_path)
+
+        # Извлекаем текст
+        text = ""
+        for coord, ocr_text in text_coordinates:
+            if convert_coord:
+                pdf_coord = CoordinateAdjuster.adjust_coordinates(coord, img_size, pdf_size)
+                text += self.extract_text_within_coordinates(file_path, pdf_coord) + "\n"
+            else:
+                text += ocr_text + "\n"
+
+        return image, text
+
+
+class TesseractOCREngine(OCRBase):
+    def __init__(self, lang: Union[List[str], str] = 'eng', psm: int = 11):
+        super().__init__(lang)
+        self.psm = psm
+
+    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+        """
+        Выполнение OCR с помощью Tesseract.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        import pytesseract
+        image = cv2.imread(file_path, 0)
+        data = pytesseract.image_to_data(image, lang=self.lang, config=f"--psm {self.psm}", output_type="dict")
+
+        result = []
+        current_block = []
+
+        for item in data["text"]:
+            if item == '':
+                if current_block:
+                    result.append(' '.join(current_block))
+                    current_block = []
+            else:
+                current_block.append(item)
+
+        # Добавить последний блок, если он не пустой
+        if current_block:
+            result.append(' '.join(current_block))
+
+        # Объединить все блоки с переводами строки
+        text = '\n'.join(result)
+
+        for i in range(len(data['left'])):
+            x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+            if data['conf'][i] == -1:
+                cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        return image, text
+
+
+class PaddleOCREngine(OCRBase):
+    def __init__(self, lang: Union[List[str], str] = 'en'):
+        super().__init__(lang)
+        from paddleocr import PaddleOCR
+        self.ocr = PaddleOCR(lang=lang)
+
+    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+        """
+        Выполнение OCR с помощью PaddleOCR.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        image = cv2.imread(file_path, 0)
+        result = self.ocr.ocr(image)
+        all_text = []
+        for line in result:
+            all_text.extend(text[1][0] for text in line)
+        for line in result:
+            for box, _ in line:
+                points = np.array(box, dtype=np.int32)
+                x_min, y_min = np.min(points, axis=0)
+                x_max, y_max = np.max(points, axis=0)
+                cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+        return image, "\n".join(all_text)
+
+
+class DocTREngine(OCRBase):
+    def __init__(self, detect_language: bool = False):
+        super().__init__()
+        from doctr.models import ocr_predictor
+        self.ocr = ocr_predictor(pretrained=True, detect_language=detect_language)
+
+    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+        """
+        Выполнение OCR с помощью DocTR.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        from doctr.io import DocumentFile
+        image = cv2.imread(file_path, 0)
+        doc = DocumentFile.from_images(file_path)
+        result = self.ocr(doc)
+        text = "\n".join(
+            [" ".join([word.value for word in line.words])
+                for page in result.pages
+                for block in page.blocks
+                for line in block.lines]
+        )
+        h, w = image.shape[:2]
+        for page in result.pages:
+            for block in page.blocks:
+                for line in block.lines:
+                    for word in line.words:
+                        (x1_norm, y1_norm), (x2_norm, y2_norm) = word.geometry
+                        x1, y1, x2, y2 = int(x1_norm * w), int(y1_norm * h), int(x2_norm * w), int(y2_norm * h)
+                        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        return image, text
+
+
+class BaseProcessor:
+    def __init__(
+            self,
+            file_path: str,
+            checkbox: bool,
+            selected_engine: str,
+            lang_selected: Union[List[str], str] = None,
+            only_ocr: bool = False,
+            min_confidence: int = 50,
+            x_shift: float = 1.0,
+            y_shift: float = 0.5,
+            psm: int = 11
+    ):
+        self.file_path = file_path
+        self.checkbox = checkbox
+        self.lang_selected = lang_selected or ['en']
+        self.only_ocr = only_ocr
+        self.min_confidence = min_confidence
+        self.ocr = self.initialize_ocr(selected_engine, x_shift, y_shift, psm)
+
+    @staticmethod
+    def combine_excel_sheets(file_path: str) -> DataFrame:
+        """
+        Чтение всех листов из Excel-файла и их объединение в один DataFrame.
+        :param file_path: Путь к Excel-файлу.
+        :return: Содержимое всех листов в виде DataFrame.
+        """
+        sheets = pd.read_excel(file_path, sheet_name=None)
+        dfs = list(sheets.values())
+        return pd.concat(dfs, ignore_index=True)
+
+    def initialize_ocr(self, selected_engine: str, x_shift: float, y_shift: float, psm: int):
+        """
+        Инициализация OCR-движка.
+        :param selected_engine: Выбранный OCR-движок.
+        :param x_shift: 
+        :param y_shift:
+        :param psm:
+        :return: Экземпляр класса OCR.
+        """
+        # OCR-движки, где первый элемент - класс для только для OCR, второй - класс для обработки таблиц
+        ocr_engines = {
+            "EasyOCR": (EasyOCREngine, EasyOCR),
+            "TesseractOCR": (TesseractOCREngine, TesseractOCR),
+            "PaddleOCR": (PaddleOCREngine, PaddleOCR),
+            "DocTR": (DocTREngine, DocTR),
+        }
+
+        if selected_engine in ocr_engines:
+            ocr_class = ocr_engines[selected_engine][0] if self.only_ocr else ocr_engines[selected_engine][1]
+            if selected_engine == "EasyOCR" and ocr_class == EasyOCREngine:
+                return ocr_class(lang=self.lang_selected, x_shift=x_shift, y_shift=y_shift)
+            elif selected_engine == "TesseractOCR":
+                return ocr_class(lang="+".join(self.lang_selected), psm=psm)
+            elif selected_engine == "DocTR":
+                return ocr_class(detect_language=True)
+            else:
+                return ocr_class(lang=self.lang_selected)
+
+        return OCRBase(lang=self.lang_selected) if self.only_ocr else None
+
+    def extract_tables(self, obj, path_to_excel: str):
+        """
+        Извлечение таблиц из PDF файла и сохранение в Excel.
+        :param obj: Объект для обработки (PDF или изображение).
+        :param path_to_excel: Путь к Excel-файлу.
+        :return: Словарь или список с извлеченными таблицами.
+        """
+
+        extracted_tables = obj.extract_tables(
+            ocr=self.ocr,
+            implicit_rows=False,
+            borderless_tables=self.checkbox,
+            min_confidence=self.min_confidence
+        )
+        obj.to_xlsx(
+            dest=path_to_excel,
+            ocr=self.ocr,
+            implicit_rows=False,
+            borderless_tables=self.checkbox,
+            min_confidence=self.min_confidence
+        )
+        return extracted_tables
+
+    @staticmethod
+    def handle_tables(obj, elem, text, dict_boxes):
+        """
+        Обработка таблиц.
+        :param obj: Объект для обработки (PDF или изображение)..
+        :param elem: Элемент класса.
+        :param text: распознанный текст.
+        :param dict_boxes: Словарь, который проверяет, что текст уже не повторялся.
+        :return:
+        """
+        for i in elem.content:
+            for cell in elem.content[i]:
+                if cell.value and (cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2) not in dict_boxes:
+                    text += cell.value.replace("\n", " ") + "\n"
+                    dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
+                cv2.rectangle(
+                    obj.images[0],
+                    [cell.bbox.x1, cell.bbox.y1],
+                    [cell.bbox.x2, cell.bbox.y2],
+                    (0, 0, 0),
+                    2
+                )
+        return text
+
+
+class PDFProcessor(BaseProcessor):
+    def __init__(
+            self,
+            file_path: str,
+            checkbox: bool,
+            selected_engine: str,
+            lang_selected: Optional[List[str]] = None,
+            only_ocr: bool = False,
+            min_confidence: int = 50,
+            x_shift: float = 1.0,
+            y_shift: float = 0.5,
+            psm: int = 11
+    ):
+        super().__init__(
+            file_path, 
+            checkbox, 
+            selected_engine, 
+            lang_selected, 
+            only_ocr, 
+            min_confidence, 
+            x_shift, 
+            y_shift,
+            psm
+        )
+        self.pdf = PDF(file_path, detect_rotation=True, pdf_text_extraction=True)
+        if not self.is_image_based_pdf(file_path) and not only_ocr:
+            self.ocr = None
+
+    @staticmethod
+    def is_image_based_pdf(file_path: str) -> bool:
+        """
+        Проверка, является ли PDF файл изображением.
+        :param file_path: Путь к PDF файлу.
+        :return: True, если PDF содержит изображения, иначе False.
+        """
+        doc = fitz.open(file_path)
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text = page.get_text()
+            if text.strip():
+                return False
+        return True
+
+    def process(self):
+        """
+        Основной метод обработки PDF файла.
+        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
+        """
+        if self.only_ocr:
+            # Выполнить только OCR и вернуть распознанный текст
+            image, extracted_text = self.ocr.perform_ocr(self.file_path)
+            return image, extracted_text, pd.DataFrame(), ""
+        else:
+            dict_boxes, text = {}, ""
+            path_to_excel = f"{self.file_path}.xlsx"
+            for elements in self.extract_tables(self.pdf, path_to_excel).values():
+                for elem in elements:
+                    text = self.handle_tables(self.pdf, elem, text, dict_boxes)
+            cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
+            df = self.combine_excel_sheets(path_to_excel)
+            return self.pdf.images[0], text, df, path_to_excel
+
+
+class ImageProcessor(BaseProcessor):
+    def __init__(
+            self,
+            file_path: str,
+            checkbox: bool,
+            selected_engine: str,
+            lang_selected: Optional[List[str]] = None,
+            only_ocr: bool = False,
+            min_confidence: int = 50,
+            x_shift: float = 1.0,
+            y_shift: float = 0.5,
+            psm: int = 11
+    ):
+        super().__init__(
+            file_path,
+            checkbox,
+            selected_engine,
+            lang_selected,
+            only_ocr,
+            min_confidence,
+            x_shift,
+            y_shift,
+            psm
+        )
+        self.img = Image(file_path, detect_rotation=True)
+
+    def process(self):
+        """
+        Основной метод обработки изображения.
+        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
+        """
+        if self.only_ocr:
+            # Выполнить только OCR и вернуть распознанный текст
+            image, extracted_text = self.ocr.perform_ocr(self.file_path)
+            return image, extracted_text, pd.DataFrame(), ""
+        else:
+            dict_boxes, text = {}, ""
+            path_to_excel = f"{self.file_path}.xlsx"
+            for elem in self.extract_tables(self.img, path_to_excel):
+                text = self.handle_tables(self.img, elem, text, dict_boxes)
+            cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
+            df = self.combine_excel_sheets(path_to_excel)
+            return self.img.images[0], text, df, path_to_excel
