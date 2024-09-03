@@ -221,26 +221,27 @@ def update_sliders_interactivity(selected_engine: str, only_ocr: bool):
     """
     # Определяем активность слайдеров на основе выбранного движка и флага только OCR
     active_settings = {
-        ("EasyOCR", True): (True, False, False),
-        ("TesseractOCR", True): (False, True, False),
-        ("TesseractOCR", False): (False, True, True),
-        ("PaddleOCR", True): (False, False, False),
-        ("DocTR", True): (False, False, False),
-        (None, True): (False, False, False),
+        ("EasyOCR", True): (True, False, False, False),
+        ("TesseractOCR", True): (False, True, False, False),
+        ("TesseractOCR", False): (False, True, True, True),
+        ("PaddleOCR", True): (False, False, False, False),
+        ("DocTR", True): (False, False, False, False),
+        (None, True): (False, False, False, False),
     }
 
     # По умолчанию активируем все слайдеры
-    default_settings = (False, False, True)
+    default_settings = (False, False, True, True)
 
     # Определяем активность слайдеров
-    is_active_easy_ocr, is_active_tesseract, is_active_confidence = active_settings.get((selected_engine, only_ocr),
-                                                                                        default_settings)
+    is_active_easy_ocr, is_active_tesseract, is_active_confidence, is_active_table_structure = \
+        active_settings.get((selected_engine, only_ocr), default_settings)
 
     return (
         gr.update(interactive=is_active_easy_ocr),
         gr.update(interactive=is_active_easy_ocr),
         gr.update(interactive=is_active_tesseract),
-        gr.update(interactive=is_active_confidence)
+        gr.update(interactive=is_active_confidence),
+        gr.update(interactive=is_active_table_structure, value=is_active_table_structure)
     )
 
 
@@ -342,13 +343,13 @@ with gr.Blocks(css=css) as demo:
     engine.change(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence]
+        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
     ocr.change(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence]
+        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
     language_selector.change(
@@ -463,7 +464,7 @@ with gr.Blocks(css=css) as demo:
     demo.load(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence]
+        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
 
