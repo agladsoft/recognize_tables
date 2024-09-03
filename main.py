@@ -404,10 +404,11 @@ class BaseProcessor:
         return extracted_tables
 
     @staticmethod
-    def handle_tables(obj, elem, text, dict_boxes):
+    def handle_tables(obj, page, elem, text, dict_boxes):
         """
         Обработка таблиц.
-        :param obj: Объект для обработки (PDF или изображение)..
+        :param obj: Объект для обработки (PDF или изображение).
+        :param page: Номер страницы.
         :param elem: Элемент класса.
         :param text: распознанный текст.
         :param dict_boxes: Словарь, который проверяет, что текст уже не повторялся.
@@ -419,7 +420,7 @@ class BaseProcessor:
                     text += cell.value.replace("\n", " ") + "\n"
                     dict_boxes[(cell.bbox.x1, cell.bbox.y1, cell.bbox.x2, cell.bbox.y2)] = cell.value
                 cv2.rectangle(
-                    obj.images[0],
+                    obj.images[page],
                     [cell.bbox.x1, cell.bbox.y1],
                     [cell.bbox.x2, cell.bbox.y2],
                     (0, 0, 0),
@@ -483,9 +484,9 @@ class PDFProcessor(BaseProcessor):
         else:
             dict_boxes, text = {}, ""
             path_to_excel = f"{self.file_path}.xlsx"
-            for elements in self.extract_tables(self.pdf, path_to_excel).values():
+            for page, elements in enumerate(self.extract_tables(self.pdf, path_to_excel).values()):
                 for elem in elements:
-                    text = self.handle_tables(self.pdf, elem, text, dict_boxes)
+                    text = self.handle_tables(self.pdf, page, elem, text, dict_boxes)
             cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
             df = self.combine_excel_sheets(path_to_excel)
             return self.pdf.images[0], text, df, path_to_excel
@@ -529,8 +530,8 @@ class ImageProcessor(BaseProcessor):
         else:
             dict_boxes, text = {}, ""
             path_to_excel = f"{self.file_path}.xlsx"
-            for elem in self.extract_tables(self.img, path_to_excel):
-                text = self.handle_tables(self.img, elem, text, dict_boxes)
+            for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
+                text = self.handle_tables(self.img, page, elem, text, dict_boxes)
             cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
             df = self.combine_excel_sheets(path_to_excel)
             return self.img.images[0], text, df, path_to_excel
