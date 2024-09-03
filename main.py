@@ -101,29 +101,33 @@ class EasyOCREngine(OCRBase):
         return image_path, image_size
 
     @staticmethod
-    def get_pdf_page_size(file_path: str) -> Tuple[int, int]:
+    def get_pdf_page_size(file_path: str, page: int) -> Tuple[int, int]:
         """
         Получает размеры страницы PDF в точках (points).
         :return: Ширина и высота страницы.
         """
         reader = PdfReader(file_path)
-        first_page = reader.pages[0]
+        first_page = reader.pages[page]
         width = int(first_page.mediabox.width)
         height = int(first_page.mediabox.height)
         return width, height
 
     @staticmethod
-    def extract_text_within_coordinates(file_path: str, coordinates: Tuple[int, int, int, int]) -> str:
+    def extract_text_within_coordinates(file_path: str, page_img: int, coordinates: Tuple[int, int, int, int]) -> str:
         """
         Извлечение текста из PDF внутри заданных координат с использованием pdfminer.
         :param file_path: Путь к файлу.
+        :param page_img: Номер страницы изображения.
         :param coordinates: Координаты текста (x1, y1, x2, y2).
         :return: Извлеченный текст.
         """
         x1, y1, x2, y2 = coordinates
         extracted_text = ""
 
-        for page_layout in extract_pages(file_path):
+        for page_pdf, page_layout in enumerate(extract_pages(file_path)):
+            if page_pdf != page_img:
+                continue
+
             for element in page_layout:
                 if isinstance(element, LTTextBoxHorizontal):
                     for text_line in element:
@@ -169,6 +173,27 @@ class EasyOCREngine(OCRBase):
         cv2.imwrite(f"{image_path}_rect.jpg", image)
 
         return text_coordinates, image
+    
+    def get_text_from_image(self, file_path, page_img, convert_coord, img_size, pdf_size, text, text_coordinates) -> str:
+        """
+        Получение текста из изображения.
+        :param file_path: Путь к изображению.
+        :param page_img: Номер страницы изображения.
+        :param convert_coord: Флаг конвертации координат.
+        :param img_size: Размеры изображения.
+        :param pdf_size: Размеры PDF страницы.
+        :param text: Текст.
+        :param text_coordinates: Список координат и распознанного текста.
+        :return: Текст.
+        """
+        # Извлекаем текст
+        for coord, ocr_text in text_coordinates:
+            if convert_coord:
+                pdf_coord = CoordinateAdjuster.adjust_coordinates(coord, img_size, pdf_size)
+                text += self.extract_text_within_coordinates(file_path, page_img, pdf_coord) + "\n"
+            else:
+                text += ocr_text + "\n"
+        return text
 
     def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
         """
@@ -177,35 +202,34 @@ class EasyOCREngine(OCRBase):
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         ext = os.path.splitext(file_path)[-1].lower()
-
+        text = ""
         # Определяем пути и размеры
         if ext == ".pdf" and not PDFProcessor.is_image_based_pdf(file_path):
-            image_path, img_size = self.convert_pdf_to_image(file_path)
-            pdf_size = self.get_pdf_page_size(file_path)
+            images = convert_from_path(file_path)
             convert_coord = True
+            for page in range(len(images)):
+                image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg'
+                images[page].save(image_path, 'JPEG')
+                img_size = images[page].size  # (width, height)
+                pdf_size = self.get_pdf_page_size(file_path, page)
+                text_coordinates, images[page] = self.get_text_coordinates(image_path)
+                text = self.get_text_from_image(file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates)
+            return images[0], text
         elif ext == ".pdf" and PDFProcessor.is_image_based_pdf(file_path):
-            image_path, img_size = self.convert_pdf_to_image(file_path)
-            pdf_size = img_size
+            images = convert_from_path(file_path)
             convert_coord = False
+            for page in range(len(images)):
+                image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg'
+                images[page].save(image_path, 'JPEG')
+                img_size = images[page].size  # (width, height)
+                text_coordinates, images[page] = self.get_text_coordinates(image_path)
+                text = self.get_text_from_image(image_path, page, convert_coord, img_size, img_size, text, text_coordinates)
+            return images[0], text
         else:
-            image_path = file_path
-            img_size = cv2.imread(image_path).shape[1::-1]  # (width, height)
-            pdf_size = img_size
             convert_coord = False
-
-        # Получаем координаты текста и OCR результат
-        text_coordinates, image = self.get_text_coordinates(image_path)
-
-        # Извлекаем текст
-        text = ""
-        for coord, ocr_text in text_coordinates:
-            if convert_coord:
-                pdf_coord = CoordinateAdjuster.adjust_coordinates(coord, img_size, pdf_size)
-                text += self.extract_text_within_coordinates(file_path, pdf_coord) + "\n"
-            else:
-                text += ocr_text + "\n"
-
-        return image, text
+            img_size = cv2.imread(file_path).shape[1::-1]
+            text_coordinates, image = self.get_text_coordinates(file_path)
+            return image, self.get_text_from_image(file_path, 0, convert_coord, img_size, img_size, text, text_coordinates)
 
 
 class TesseractOCREngine(OCRBase):

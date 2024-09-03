@@ -257,7 +257,7 @@ def validate_languages(selected_engine: str, selected_languages: List[str]) -> g
     return gr.update(value=selected_languages)
 
 
-with gr.Blocks(css=css) as demo:
+with gr.Blocks(title="Распознавание данных", css=css) as demo:
     with gr.Row():
         logo_svg = "<img src='https://i.ibb.co/zJvk1NV/OCR-3.png' width='100px' style='display: inline'>"
         gr.HTML(f"<h1><center>{logo_svg} "
