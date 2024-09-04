@@ -1,18 +1,16 @@
 import os
 import cv2
-import math
 import pymupdf
 import numpy as np
 import pandas as pd
 from cv2 import Mat
 from numpy import ndarray
-from PyPDF2 import PdfReader
 from pandas import DataFrame
 from pdf2image import convert_from_path
 from img2table.document import Image, PDF
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTTextBoxHorizontal
-from typing import Tuple, Any, List, Optional, Union
+from typing import Tuple, List, Optional, Union
 from img2table.ocr import EasyOCR, TesseractOCR, PaddleOCR, DocTR
 
 
@@ -76,145 +74,6 @@ class OCRBase:
     def __init__(self, lang: Union[List[str], str]):
         self.lang = lang
 
-    def get_text_from_image(self, image_path: str):
-        raise NotImplementedError("Recognize method not implemented!")
-
-    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
-        raise NotImplementedError("OCR method not implemented!")
-
-
-class EasyOCREngine(OCRBase):
-    def __init__(self, lang: Union[List[str], str], x_shift: float = 1.0, y_shift: float = 0.6):
-        super().__init__(lang or ['en'])
-        import easyocr
-        self.ocr = easyocr.Reader(lang)
-        self.x_shift = x_shift
-        self.y_shift = y_shift
-
-    @staticmethod
-    def get_pdf_page_size(file_path: str, page: int) -> Tuple[int, int]:
-        """
-        Получает размеры страницы PDF в точках (points).
-        :return: Ширина и высота страницы.
-        """
-        reader = PdfReader(file_path)
-        first_page = reader.pages[page]
-        width = int(first_page.mediabox.width)
-        height = int(first_page.mediabox.height)
-        return width, height
-
-    @staticmethod
-    def extract_text_within_coordinates(file_path: str, page_img: int, coordinates: Tuple[int, int, int, int]) -> str:
-        """
-        Извлечение текста из PDF внутри заданных координат с использованием pdfminer.
-        :param file_path: Путь к файлу.
-        :param page_img: Номер страницы изображения.
-        :param coordinates: Координаты текста (x1, y1, x2, y2).
-        :return: Извлеченный текст.
-        """
-        x1, y1, x2, y2 = coordinates
-        extracted_text = ""
-
-        for page_pdf, page_layout in enumerate(extract_pages(file_path)):
-            if page_pdf != page_img:
-                continue
-
-            for element in page_layout:
-                if isinstance(element, LTTextBoxHorizontal):
-                    for text_line in element:
-                        line_x1 = math.floor(text_line.bbox[0])
-                        line_y1 = math.floor(text_line.bbox[1])
-                        line_x2 = math.floor(text_line.bbox[2])
-                        line_y2 = math.floor(text_line.bbox[3])
-
-                        line_text = text_line.get_text()
-
-                        # Корректируем `x1` и `x2` на основе пробелов
-                        line_x1_adjusted, line_x2_adjusted = CoordinateAdjuster.adjust_for_spaces(
-                            line_text, line_x1, line_x2
-                        )
-
-                        # Проверка координат с учетом коррекции
-                        if x1 <= line_x1_adjusted + CoordinateAdjuster.offset \
-                                and y1 <= line_y1 + CoordinateAdjuster.offset \
-                                and x2 + CoordinateAdjuster.offset >= line_x2_adjusted \
-                                and y2 + CoordinateAdjuster.offset >= line_y2:
-                            extracted_text += f"{line_text.strip()} "
-
-        return extracted_text.strip()
-
-    def get_text_from_image(self, image_path: str) -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], ndarray]:
-        """
-        Извлечение координат текста из изображения с использованием easyocr.
-        :param image_path: Путь к изображению.
-        :return: Список координат и распознанного текста, изображение с выделенными прямоугольниками.
-        """
-        image = cv2.imread(image_path, 0)
-        contours = self.ocr.readtext(image, paragraph=True, x_ths=self.x_shift, y_ths=self.y_shift)
-        text_coordinates = []
-
-        for box, text in contours:
-            # Получаем координаты
-            top_left, top_right, bottom_right, bottom_left = box
-            x1, y1 = int(top_left[0]), int(top_left[1])
-            x2, y2 = int(bottom_right[0]), int(bottom_right[1])
-            text_coordinates.append(((x1, y1, x2, y2), text))
-            cv2.rectangle(image, top_left, bottom_right, (0, 0, 0), 2)
-        cv2.imwrite(f"{image_path}_rect.jpg", image)
-
-        return text_coordinates, image
-    
-    def get_text_coordinates(self, file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates) -> str:
-        """
-        Получение текста из изображения.
-        :param file_path: Путь к изображению.
-        :param page: Номер страницы изображения.
-        :param convert_coord: Флаг конвертации координат.
-        :param img_size: Размеры изображения.
-        :param pdf_size: Размеры PDF страницы.
-        :param text: Текст.
-        :param text_coordinates: Список координат и распознанного текста.
-        :return: Текст.
-        """
-        # Извлекаем текст
-        for coord, ocr_text in text_coordinates:
-            if convert_coord:
-                pdf_coord = CoordinateAdjuster.adjust_coordinates(coord, img_size, pdf_size)
-                text += self.extract_text_within_coordinates(file_path, page, pdf_coord) + "\n"
-            else:
-                text += ocr_text + "\n"
-        return text
-
-    def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
-        """
-        Выполнение OCR с помощью EasyOCR.
-        :param file_path: Путь к изображению.
-        :return: Изображение с выделенными прямоугольниками, распознанный текст.
-        """
-        ext = os.path.splitext(file_path)[-1].lower()
-        is_pdf = ext == ".pdf"
-        images: List[Image.images] | List[ndarray] = convert_from_path(file_path) if is_pdf else [cv2.imread(file_path)]
-        convert_coord = is_pdf and not PDFProcessor.is_image_based_pdf(file_path)
-        text = ""
-
-        for page, image in enumerate(images):
-            img_size = image.size if is_pdf else image.shape[1::-1]
-            pdf_size = self.get_pdf_page_size(file_path, page) if convert_coord else img_size
-            image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
-            if is_pdf:
-                image.save(image_path, format='JPEG')
-
-            text_coordinates, images[page] = self.get_text_from_image(image_path)
-            text = self.get_text_coordinates(file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates)
-
-        return images[0], text
-
-
-class TesseractOCREngine(OCRBase):
-    def __init__(self, lang: Union[List[str], str], psm: int = 11):
-        super().__init__(lang or ['eng'])
-        self.psm = psm
-
     @staticmethod
     def extract_text_from_pdf(file_path: str, page_img: int) -> str:
         """
@@ -233,6 +92,72 @@ class TesseractOCREngine(OCRBase):
                         line_text = text_line.get_text()
                         extracted_text += line_text
         return extracted_text.strip()
+
+    def get_text_from_image(self, image_path: str):
+        raise NotImplementedError("Recognize method not implemented!")
+
+    def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
+        """
+        Выполнение OCR с помощью движка.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        ext = os.path.splitext(file_path)[-1].lower()
+        is_pdf = ext == ".pdf"
+        images: List[Image.images] | List[ndarray] = convert_from_path(file_path) if is_pdf else [cv2.imread(file_path)]
+        convert_coord = is_pdf and not PDFProcessor.is_image_based_pdf(file_path)
+        text = ""
+
+        for page, image in enumerate(images):
+            image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
+            if is_pdf:
+                image.save(image_path, format='JPEG')
+            if convert_coord:
+                text += self.extract_text_from_pdf(file_path, page)
+            else:
+                tuple_obj = self.get_text_from_image(image_path)
+                text += tuple_obj[0]
+                images[page] = tuple_obj[1]
+
+        return images[0], text
+
+
+class EasyOCREngine(OCRBase):
+    def __init__(self, lang: Union[List[str], str], x_shift: float = 1.0, y_shift: float = 0.6):
+        super().__init__(lang or ['en'])
+        import easyocr
+        self.ocr = easyocr.Reader(lang)
+        self.x_shift = x_shift
+        self.y_shift = y_shift
+
+    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
+        """
+        Извлечение координат текста из изображения с использованием easyocr.
+        :param image_path: Путь к изображению.
+        :return: Список координат и распознанного текста, изображение с выделенными прямоугольниками.
+        """
+        image = cv2.imread(image_path, 0)
+        contours = self.ocr.readtext(image, paragraph=True, x_ths=self.x_shift, y_ths=self.y_shift)
+        text_coordinates = []
+        list_text = []
+
+        for box, text in contours:
+            # Получаем координаты
+            top_left, top_right, bottom_right, bottom_left = box
+            x1, y1 = int(top_left[0]), int(top_left[1])
+            x2, y2 = int(bottom_right[0]), int(bottom_right[1])
+            text_coordinates.append(((x1, y1, x2, y2), text))
+            list_text.append(text)
+            cv2.rectangle(image, top_left, bottom_right, (0, 0, 0), 2)
+        cv2.imwrite(f"{image_path}_rect.jpg", image)
+
+        return '\n'.join(list_text), image
+
+
+class TesseractOCREngine(OCRBase):
+    def __init__(self, lang: Union[List[str], str], psm: int = 11):
+        super().__init__(lang or ['eng'])
+        self.psm = psm
 
     def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
         """
@@ -269,33 +194,8 @@ class TesseractOCREngine(OCRBase):
         cv2.imwrite(f"{image_path}_rect.jpg", image)
         return text, image
 
-    def perform_ocr(self, file_path: str) -> Tuple[Mat | ndarray, str]:
-        """
-        Выполнение OCR с помощью Tesseract.
-        :param file_path: Путь к изображению.
-        :return: Изображение с выделенными прямоугольниками, распознанный текст.
-        """
-        ext = os.path.splitext(file_path)[-1].lower()
-        is_pdf = ext == ".pdf"
-        images: List[Image.images] | List[ndarray] = convert_from_path(file_path) if is_pdf else [cv2.imread(file_path)]
-        convert_coord = is_pdf and not PDFProcessor.is_image_based_pdf(file_path)
-        text = ""
 
-        for page, image in enumerate(images):
-            image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
-            if is_pdf:
-                image.save(image_path, format='JPEG')
-            if convert_coord:
-                text += self.extract_text_from_pdf(file_path, page)
-            else:
-                tuple_obj = self.get_text_from_image(image_path)
-                text += tuple_obj[0]
-                images[page] = tuple_obj[1]
-
-        return images[0], text
-
-
-class PaddleOCREngine(TesseractOCREngine):
+class PaddleOCREngine(OCRBase):
     def __init__(self, lang: Union[List[str], str]):
         super().__init__(lang or 'en')
         from paddleocr import PaddleOCR
@@ -321,7 +221,7 @@ class PaddleOCREngine(TesseractOCREngine):
         return "\n".join(all_text), image
 
 
-class DocTREngine(TesseractOCREngine):
+class DocTREngine(OCRBase):
     def __init__(self, detect_language: bool = True):
         super().__init__(lang='')
         from doctr.models import ocr_predictor
