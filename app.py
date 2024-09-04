@@ -4,9 +4,8 @@ import gradio as gr
 from gradio_pdf import PDF
 from pandas import DataFrame
 from typing import List, Tuple
-from main import PDFProcessor, ImageProcessor
 from gradio_image_prompter import ImagePrompter
-# from gradio_image_annotation import image_annotator
+from recognize import PDFProcessor, ImageProcessor
 
 
 css = """
@@ -379,20 +378,6 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
                     with gr.Column():
                         image_rect_input = ImagePrompter(label="Выберите JPG изображение", type="filepath")
                         image_rect_process_button = gr.Button(value="Распознать данные из JPG")
-
-            # with gr.Tab("Загрузка JPG (можно рисовать таблицу)"):
-            #     with gr.Row():
-            #         with gr.Column():
-            #             image_rect_input = image_annotator(
-            #                     boxes_alpha=0,
-            #                     label_list=[""],
-            #                     label_colors=[(0, 0, 0)],
-            #                     box_thickness=1,
-            #                     box_selected_thickness=1,
-            #                     disable_edit_boxes=True,
-            #                     handle_size=2
-            #                 )
-            #             image_rect_process_button = gr.Button(value="Распознать данные из JPG")
 
         with gr.Column():
             gr.HTML(f'<div style="margin-top:{vertical_offset}px;"></div>')  # Добавление отступа сверху
