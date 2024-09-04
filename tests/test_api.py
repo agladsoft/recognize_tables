@@ -11,7 +11,7 @@ file_path = "../text_example.png"
 filename = os.path.basename(file_path)
 
 # Данные (ключи), которые нужно передать вместе с запросом
-data = {
+params = {
     "is_table_bordered": False,
     "selected_engine": "TesseractOCR",
     "selected_languages": ["eng"],
@@ -28,7 +28,7 @@ files = {
 }
 
 # Отправка POST-запроса
-response = requests.post(url, data=data, files=files)
+response = requests.post(url, params=params, files=files)
 
 # Проверка ответа сервера
 if response.status_code == 200:
