@@ -32,7 +32,6 @@ response = requests.post(url, data=data, files=files)
 
 # Проверка ответа сервера
 if response.status_code == 200:
-    print("Файл успешно загружен!")
     print(response.json())  # Если ответ в формате JSON
 else:
     print(f"Ошибка загрузки: {response.status_code}")
