@@ -16,14 +16,6 @@ from typing import Tuple, Any, List, Optional, Union
 from img2table.ocr import EasyOCR, TesseractOCR, PaddleOCR, DocTR
 
 
-class OCRBase:
-    def __init__(self, lang: Union[List[str], str] = 'en'):
-        self.lang = lang
-
-    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
-        raise NotImplementedError("OCR method not implemented!")
-
-
 class CoordinateAdjuster:
     offset = 5  # Смещение для точности сопоставления координат
 
@@ -80,6 +72,17 @@ class CoordinateAdjuster:
         return line_x1_adjusted, line_x2_adjusted
 
 
+class OCRBase:
+    def __init__(self, lang: Union[List[str], str] = 'en'):
+        self.lang = lang
+
+    def get_text_from_image(self, image_path: str):
+        raise NotImplementedError("Recognize method not implemented!")
+
+    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+        raise NotImplementedError("OCR method not implemented!")
+
+
 class EasyOCREngine(OCRBase):
     def __init__(self, lang: Union[List[str], str] = 'en', x_shift: float = 1.0, y_shift: float = 0.6):
         super().__init__(lang)
@@ -87,18 +90,6 @@ class EasyOCREngine(OCRBase):
         self.ocr = easyocr.Reader(lang)
         self.x_shift = x_shift
         self.y_shift = y_shift
-
-    @staticmethod
-    def convert_pdf_to_image(file_path: str) -> Tuple[str, Tuple[int, int]]:
-        """
-        Конвертация первой страницы PDF в изображение и сохранение его как JPG.
-        :return: Расположение изображения и его размеры.
-        """
-        images = convert_from_path(file_path)
-        image_path = f'{os.path.splitext(file_path)[0]}.jpg'
-        images[0].save(image_path, 'JPEG')
-        image_size = images[0].size  # (width, height)
-        return image_path, image_size
 
     @staticmethod
     def get_pdf_page_size(file_path: str, page: int) -> Tuple[int, int]:
@@ -152,8 +143,7 @@ class EasyOCREngine(OCRBase):
 
         return extracted_text.strip()
 
-    def get_text_coordinates(self, image_path: str) \
-            -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], Mat | ndarray]:
+    def get_text_from_image(self, image_path: str) -> Tuple[List[Tuple[Tuple[int, int, int, int], Any]], ndarray]:
         """
         Извлечение координат текста из изображения с использованием easyocr.
         :param image_path: Путь к изображению.
@@ -174,7 +164,7 @@ class EasyOCREngine(OCRBase):
 
         return text_coordinates, image
     
-    def get_text_from_image(self, file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates) -> str:
+    def get_text_coordinates(self, file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates) -> str:
         """
         Получение текста из изображения.
         :param file_path: Путь к изображению.
@@ -212,10 +202,10 @@ class EasyOCREngine(OCRBase):
             pdf_size = self.get_pdf_page_size(file_path, page) if convert_coord else img_size
             image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
             if is_pdf:
-                image.save(image_path, 'JPEG')
+                image.save(image_path, format='JPEG')
 
-            text_coordinates, images[page] = self.get_text_coordinates(image_path)
-            text = self.get_text_from_image(file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates)
+            text_coordinates, images[page] = self.get_text_from_image(image_path)
+            text = self.get_text_coordinates(file_path, page, convert_coord, img_size, pdf_size, text, text_coordinates)
 
         return images[0], text
 
@@ -225,14 +215,33 @@ class TesseractOCREngine(OCRBase):
         super().__init__(lang)
         self.psm = psm
 
-    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+    @staticmethod
+    def extract_text_from_pdf(file_path: str, page_img: int) -> str:
+        """
+        Извлечение текста из PDF внутри заданных координат с использованием pdfminer.
+        :param file_path: Путь к файлу.
+        :param page_img: Номер страницы изображения.
+        :return: Извлеченный текст.
+        """
+        extracted_text = ""
+        for page_pdf, page_layout in enumerate(extract_pages(file_path)):
+            if page_pdf != page_img:
+                continue
+            for element in page_layout:
+                if isinstance(element, LTTextBoxHorizontal):
+                    for text_line in element:
+                        line_text = text_line.get_text()
+                        extracted_text += line_text
+        return extracted_text.strip()
+
+    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью Tesseract.
-        :param file_path: Путь к изображению.
+        :param image_path: Путь к изображению.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         import pytesseract
-        image = cv2.imread(file_path, 0)
+        image = cv2.imread(image_path, 0)
         data = pytesseract.image_to_data(image, lang=self.lang, config=f"--psm {self.psm}", output_type="dict")
 
         result = []
@@ -257,22 +266,48 @@ class TesseractOCREngine(OCRBase):
             x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
             if data['conf'][i] == -1:
                 cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        return image, text
+        cv2.imwrite(f"{image_path}_rect.jpg", image)
+        return text, image
+
+    def perform_ocr(self, file_path: str) -> Tuple[Mat | ndarray, str]:
+        """
+        Выполнение OCR с помощью Tesseract.
+        :param file_path: Путь к изображению.
+        :return: Изображение с выделенными прямоугольниками, распознанный текст.
+        """
+        ext = os.path.splitext(file_path)[-1].lower()
+        is_pdf = ext == ".pdf"
+        images: List[Image.images] | List[ndarray] = convert_from_path(file_path) if is_pdf else [cv2.imread(file_path)]
+        convert_coord = is_pdf and not PDFProcessor.is_image_based_pdf(file_path)
+        text = ""
+
+        for page, image in enumerate(images):
+            image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
+            if is_pdf:
+                image.save(image_path, format='JPEG')
+            if convert_coord:
+                text += self.extract_text_from_pdf(file_path, page)
+            else:
+                tuple_obj = self.get_text_from_image(image_path)
+                text += tuple_obj[0]
+                images[page] = tuple_obj[1]
+
+        return images[0], text
 
 
-class PaddleOCREngine(OCRBase):
+class PaddleOCREngine(TesseractOCREngine):
     def __init__(self, lang: Union[List[str], str] = 'en'):
         super().__init__(lang)
         from paddleocr import PaddleOCR
         self.ocr = PaddleOCR(lang=lang)
 
-    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью PaddleOCR.
-        :param file_path: Путь к изображению.
+        :param image_path: Путь к изображению.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
-        image = cv2.imread(file_path, 0)
+        image = cv2.imread(image_path, 0)
         result = self.ocr.ocr(image)
         all_text = []
         for line in result:
@@ -283,16 +318,16 @@ class PaddleOCREngine(OCRBase):
                 x_min, y_min = np.min(points, axis=0)
                 x_max, y_max = np.max(points, axis=0)
                 cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-        return image, "\n".join(all_text)
+        return "\n".join(all_text), image
 
 
-class DocTREngine(OCRBase):
+class DocTREngine(TesseractOCREngine):
     def __init__(self, detect_language: bool = False):
         super().__init__()
         from doctr.models import ocr_predictor
         self.ocr = ocr_predictor(pretrained=True, detect_language=detect_language)
 
-    def perform_ocr(self, file_path: str) -> Tuple[Mat, str]:
+    def get_text_from_image(self, file_path: str) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью DocTR.
         :param file_path: Путь к изображению.
@@ -316,7 +351,7 @@ class DocTREngine(OCRBase):
                         (x1_norm, y1_norm), (x2_norm, y2_norm) = word.geometry
                         x1, y1, x2, y2 = int(x1_norm * w), int(y1_norm * h), int(x2_norm * w), int(y2_norm * h)
                         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        return image, text
+        return text, image
 
 
 class BaseProcessor:
