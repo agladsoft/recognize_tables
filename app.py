@@ -211,11 +211,12 @@ def update_languages(selected_engine: str) -> gr.update:
         )
 
 
-def update_sliders_interactivity(selected_engine: str, only_ocr: bool):
+def update_sliders_interactivity(selected_engine: str, only_ocr: bool, is_active_table_structure: bool):
     """
     Обновляет активность слайдеров x_shift_slider и y_shift_slider.
     :param selected_engine: Выбранный движок.
     :param only_ocr: Флажок простого OCR.
+    :param is_active_table_structure: Флажок наличия структуры у таблицы.
     :return: Обновление активности слайдеров.
     """
     # Определяем активность слайдеров на основе выбранного движка и флага только OCR
@@ -232,7 +233,7 @@ def update_sliders_interactivity(selected_engine: str, only_ocr: bool):
     default_settings = (False, False, True, True)
 
     # Определяем активность слайдеров
-    is_active_easy_ocr, is_active_tesseract, is_active_confidence, is_active_table_structure = \
+    is_active_easy_ocr, is_active_tesseract, is_active_confidence, is_active_table_structure_inter = \
         active_settings.get((selected_engine, only_ocr), default_settings)
 
     return (
@@ -240,7 +241,7 @@ def update_sliders_interactivity(selected_engine: str, only_ocr: bool):
         gr.update(interactive=is_active_easy_ocr),
         gr.update(interactive=is_active_tesseract),
         gr.update(interactive=is_active_confidence),
-        gr.update(interactive=is_active_table_structure, value=is_active_table_structure)
+        gr.update(interactive=is_active_table_structure_inter, value=is_active_table_structure)
     )
 
 
@@ -341,13 +342,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     engine.change(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr],
+        inputs=[engine, ocr, table_structure_checkbox],
         outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
     ocr.change(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr],
+        inputs=[engine, ocr, table_structure_checkbox],
         outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
@@ -448,7 +449,7 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     demo.load(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr],
+        inputs=[engine, ocr, table_structure_checkbox],
         outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
     )
 
