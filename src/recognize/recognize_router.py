@@ -1,7 +1,9 @@
 import os
 import logging
-from typing import List, Union
+from typing import List, Union, Dict, Any
 from fastapi import APIRouter, UploadFile, File, Query, HTTPException
+from pydantic import BaseModel
+
 from app import process_pdf, process_image, get_engines, get_supported_languages
 
 recognize_router = APIRouter()
@@ -51,6 +53,12 @@ def save_files(file: UploadFile) -> str:
     return file_location
 
 
+class RecognitionResponse(BaseModel):
+    text: str
+    dataframe: Dict[str, Any]
+    excel_link: str
+
+
 @recognize_router.post("/recognize", tags=["Recognize"])
 def get_text_from_image(
         file: UploadFile = File(..., description="Загрузите файл изображения или PDF"),
@@ -85,9 +93,7 @@ def get_text_from_image(
             y_shift=y_shift,
             psm=psm
         )
-        return result[1]
-
-    # Обработка изображений
+        return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
     elif ext in [".jpg", ".jpeg", ".png"]:
         result = process_image(
             image_data={"background": file_path},
@@ -100,8 +106,7 @@ def get_text_from_image(
             y_shift=y_shift,
             psm=psm
         )
-        return result[1]
-
+        return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
     else:
         raise FileNotFoundError("Файл не является изображением или PDF")
 

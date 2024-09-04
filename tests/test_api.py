@@ -5,7 +5,7 @@ import requests
 url = "http://127.0.0.1:8000/recognize"
 
 # Путь к файлу
-file_path = "../text_example.png"
+file_path = "../table_example.jpg"
 
 # Извлечение названия файла из пути
 filename = os.path.basename(file_path)
@@ -32,7 +32,7 @@ response = requests.post(url, params=params, files=files)
 
 # Проверка ответа сервера
 if response.status_code == 200:
-    print(response.json())  # Если ответ в формате JSON
+    print(response.json()["text"])  # Если ответ в формате JSON
 else:
     print(f"Ошибка загрузки: {response.status_code}")
     print(response.text)
