@@ -15,6 +15,7 @@ params = {
     "is_table_bordered": False,
     "selected_engine": "TesseractOCR",
     "selected_languages": ["eng"],
+    "is_multiprocess": False,
     "only_ocr": True,
     "confidence": 50,
     "x_shift": 1.0,

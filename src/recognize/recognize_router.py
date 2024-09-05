@@ -10,6 +10,14 @@ recognize_router = APIRouter()
 FILES_DIR: str = "."
 
 
+def validate_multiprocessing(selected_engine: str, is_multiprocess: bool):
+    if selected_engine != "TesseractOCR" and is_multiprocess:
+        raise HTTPException(
+            status_code=400,
+            detail="Многопроцессорное распознавание доступно только для TesseractOCR"
+        )
+
+
 def validate_languages(selected_languages: Union[str, List[str]], selected_engine: str):
     # Получаем поддерживаемые языки для выбранного движка
     supported_languages = get_supported_languages(selected_engine)
@@ -65,6 +73,7 @@ def get_text_from_image(
         is_table_bordered: bool = Query(False, description="Если у таблицы есть структура, установите галочку"),
         selected_engine: str = Query(get_engines()[1], enum=get_engines(), description="Выберите движок"),
         selected_languages: List[str] = Query(["eng"], description="Выберите языки"),
+        is_multiprocess: bool = Query(False, description="Многопроцессорное распознавание"),
         only_ocr: bool = Query(True, description="Простое распознавание текста"),
         confidence: int = Query(50, description="Уверенность распознанного текста"),
         x_shift: float = Query(1.0, description="Сдвиг по X для EasyOCR"),
@@ -75,6 +84,9 @@ def get_text_from_image(
 
     # Валидация языков на основе выбранного движка
     selected_languages = validate_languages(selected_languages, selected_engine)
+
+    # Валидация многопроцессорного распознавания
+    validate_multiprocessing(selected_engine, is_multiprocess)
 
     # Сохранение загруженного файла
     file_path = save_files(file)
@@ -91,7 +103,8 @@ def get_text_from_image(
             confidence=confidence,
             x_shift=x_shift,
             y_shift=y_shift,
-            psm=psm
+            psm=psm,
+            is_multiprocess=is_multiprocess
         )
         return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
     elif ext in [".jpg", ".jpeg", ".png"]:
@@ -109,4 +122,3 @@ def get_text_from_image(
         return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
     else:
         raise FileNotFoundError("Файл не является изображением или PDF")
-

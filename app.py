@@ -362,7 +362,12 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     engine.change(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr, table_structure_checkbox],
+        inputs=[
+            engine,
+            ocr,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ],
         outputs=[
             x_shift_slider,
             y_shift_slider,
@@ -375,7 +380,12 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     ocr.change(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr, table_structure_checkbox],
+        inputs=[
+            engine,
+            ocr,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ],
         outputs=[
             x_shift_slider,
             y_shift_slider,
@@ -485,7 +495,12 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     demo.load(
         fn=update_sliders_interactivity,
-        inputs=[engine, ocr, table_structure_checkbox],
+        inputs=[
+            engine,
+            ocr,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ],
         outputs=[
             x_shift_slider,
             y_shift_slider,
