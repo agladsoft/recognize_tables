@@ -1,73 +1,143 @@
 import os
 import re
 import cv2
+import math
 import pymupdf
 import numpy as np
 import pandas as pd
 from cv2 import Mat
+from loguru import logger
+from scipy import ndimage
 from numpy import ndarray
 from pypdf import PdfReader
 from pandas import DataFrame
+from collections import namedtuple
 from pdf2image import convert_from_path
 from img2table.document import Image, PDF
 from typing import Tuple, List, Optional, Union
 from img2table.ocr import EasyOCR, TesseractOCR, PaddleOCR, DocTR
 
 
-class CoordinateAdjuster:
-    offset = 5  # Смещение для точности сопоставления координат
+class RotateAdjuster:
 
     @staticmethod
-    def adjust_coordinates(
-            coordinates: Tuple[int, int, int, int],
-            img_size: Tuple[int, int],
-            pdf_size: Tuple[int, int]
-    ) -> Tuple[int, int, int, int]:
+    def rotate(image: ndarray, angle: int, is_right_angle: bool, background: Optional[tuple] = None) -> ndarray:
         """
-        Преобразует координаты из изображения в координаты на PDF с учетом масштабирования.
-        :param coordinates: Координаты текста (x1, y1, x2, y2).
-        :param img_size: Размеры изображения (ширина, высота).
-        :param pdf_size: Размеры PDF страницы (ширина, высота).
-        :return: Преобразованные координаты.
+        Поворот изображения на 90, 180 или 270 градусов.
+        :param image: Исходное изображение в виде матрицы.
+        :param angle: Угол, на который нужно повернуть.
+        :param background: Оттенок серого цвета.
+        :param is_right_angle: Прямой ли этот угол
+        :return: Матрица перевернутого изображения.
         """
-        img_width, img_height = img_size
-        pdf_width, pdf_height = pdf_size
+        old_width, old_height = image.shape[:2]
+        if is_right_angle:
+            angle_radian: float = math.radians(angle)
+            width: float = abs(np.sin(angle_radian) * old_height) + abs(np.cos(angle_radian) * old_width)
+            height: float = abs(np.sin(angle_radian) * old_width) + abs(np.cos(angle_radian) * old_height)
+            image_center: Tuple[float, float] = tuple(np.array(image.shape[1::-1]) / 2)
+            rot_mat: ndarray = cv2.getRotationMatrix2D(image_center, angle, 1.0)
+            rot_mat[1, 2] += (width - old_width) / 2
+            rot_mat[0, 2] += (height - old_height) / 2
+            return cv2.warpAffine(image, rot_mat, (int(round(height)), int(round(width))), borderValue=background)
+        center: Tuple[int, int] = (old_height // 2, old_width // 2)
+        img_matrix: ndarray = cv2.getRotationMatrix2D(center, angle, 1.0)
+        return cv2.warpAffine(
+            image, img_matrix,
+            (old_height, old_width),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_REPLICATE
+        )
 
-        x1, y1, x2, y2 = coordinates
-
-        # Рассчитываем коэффициенты масштабирования
-        scale_x = pdf_width / img_width
-        scale_y = pdf_height / img_height
-
-        # Преобразуем координаты
-        x1_pdf = x1 * scale_x
-        y1_pdf = (img_height - y1) * scale_y  # переворачиваем по Y
-        x2_pdf = x2 * scale_x
-        y2_pdf = (img_height - y2) * scale_y  # переворачиваем по Y
-
-        return int(x1_pdf), int(y2_pdf), int(x2_pdf), int(y1_pdf)
-
-    @staticmethod
-    def adjust_for_spaces(line_text: str, line_x1: int, line_x2: int, space_width: int = 4) -> Tuple[int, int]:
+    def rotate_image(self, image: str, page_img: int) -> ndarray:
         """
-        Корректировка координат `x1` и `x2` на основе пробелов в начале и конце строки.
-        :param line_text: Текст строки.
-        :param line_x1: Начальная координата x1.
-        :param line_x2: Конечная координата x2.
-        :param space_width: Ширина пробела.
+        Поворот изображения на прямой угол (90, 180, 270).
+        :param image: Путь к изображению.
+        :param page_img: Номер страницы изображения.
         :return:
         """
-        stripped_text = line_text.rstrip('\n')
+        import pytesseract
+        img: ndarray = cv2.imread(image, 0)
+        rotate_img: str = pytesseract.image_to_osd(img, config='--psm 0 -c min_characters_to_try=5')
+        angle_rotated_image: int = int(re.search(r'(?<=Orientation in degrees: )\d+', rotate_img)[0])
+        logger.info(f"Угол поворота изображения: {angle_rotated_image}. Страница: {page_img}")
+        rotated: ndarray = self.rotate(img, angle_rotated_image, is_right_angle=True, background=(0, 0, 0))
+        return self.correct_skew(rotated, page_img=page_img, delta=1, limit=60)
 
-        # Количество пробелов в начале и конце строки
-        num_leading_spaces = len(stripped_text) - len(stripped_text.lstrip(' '))
-        num_trailing_spaces = len(stripped_text) - len(stripped_text.rstrip(' '))
+    @staticmethod
+    def _determine_score(arr: Union[ndarray, cv2.UMat], angle: Union[int, float]) -> float:
+        """
+        Определяем наилучший результат для угла.
+        :param arr: Изображение в виде матрицы.
+        :param angle: Угол, на который нужно повернуть.
+        :return:
+        """
+        data: ndarray = ndimage.rotate(arr, angle, reshape=False, order=0)
+        histogram: ndarray = np.sum(data, axis=1, dtype=float)
+        score: np.array_api.float64 = np.sum((histogram[1:] - histogram[:-1]) ** 2, dtype=float)
+        return score // 100000000
 
-        # Корректировка `x1` (уменьшаем x1) и `x2` (увеличиваем x2)
-        line_x1_adjusted = line_x1 + num_leading_spaces * space_width
-        line_x2_adjusted = line_x2 - num_trailing_spaces * space_width
+    def _golden_ratio(self, left: int, right: int, delta: float, thresh: Union[ndarray, cv2.UMat]) -> Union[int, float]:
+        """
+        Определяем лучший угол для поворота (по золотому сечению). Вот ссылка для ознакомления
+        https://en.wikipedia.org/wiki/Golden_ratio
+        :param left: Минимальный диапазон для нахождения угла.
+        :param right: Максимальный диапазон для нахождения угла.
+        :param delta: Минимальный диапазон для нахождения угла.
+        :param thresh: Изображение в виде матрицы.
+        :return: Наилучший найденный угол для поворота.
+        """
+        res_phi: float = 2 - (1 + math.sqrt(5)) / 2
+        x1, x2 = left + res_phi * (right - left), right - res_phi * (right - left)
+        f1, f2 = self._determine_score(thresh, x1), self._determine_score(thresh, x2)
+        scores: List[float] = []
+        angles: List[float] = []
+        while abs(right - left) > delta:
+            if f1 < f2:
+                left, x1, f1 = x1, x2, f2
+                x2: float = right - res_phi * (right - left)
+                f2: float = self._determine_score(thresh, x2)
+                scores.append(f2)
+                angles.append(x2)
+            else:
+                right, x2, f2 = x2, x1, f1
+                x1: float = left + res_phi * (right - left)
+                f1: float = self._determine_score(thresh, x1)
+                scores.append(f1)
+                angles.append(x1)
+        return (x1 + x2) / 2
 
-        return line_x1_adjusted, line_x2_adjusted
+    def correct_skew(self, image: ndarray, page_img: int, delta: int, limit: int) -> ndarray:
+        """
+        Поворот изображения на маленький угол.
+        :param image: Путь к изображению.
+        :param page_img: Номер страницы изображения.
+        :param delta: Шаг для нахождения нужного угла.
+        :param limit: Максимальный допустимый угол для поворота.
+        :return:
+        """
+        thresh: Union[ndarray, cv2.UMat] = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+        X_Y: namedtuple = namedtuple("X_Y", "x y")
+        dict_angle_and_score: dict = {0: X_Y(0, self._determine_score(thresh, 0))}
+        best_angle: Union[int, float] = 0
+        for angle in range(1, limit, delta):
+            dict_angle_and_score[angle] = X_Y(angle, self._determine_score(thresh, angle))
+            dict_angle_and_score[-angle] = X_Y(-angle, self._determine_score(thresh, -angle))
+            sorted_x_y: list = sorted(dict_angle_and_score.values(), key=lambda xy: xy.y)
+            max_value: X_Y = sorted_x_y[-1]
+            min_value: X_Y = sorted_x_y[0]
+            if max_value.y > min_value.y * 10:
+                left: X_Y = dict_angle_and_score.get(max_value.x - 1)
+                right: X_Y = dict_angle_and_score.get(max_value.x + 1)
+                if left and right:
+                    best_angle = self._golden_ratio(left.x, right.x, 0.1, thresh)
+                    best_score: float = self._determine_score(thresh, best_angle)
+                    if best_score > min_value.y * 100:
+                        break
+                    else:
+                        del dict_angle_and_score[max_value.x]
+        logger.info(f"Лучший угол поворота: {best_angle}. Страница: {page_img}")
+        return self.rotate(image, best_angle, is_right_angle=False)
 
 
 class OCRBase:
@@ -82,6 +152,10 @@ class OCRBase:
         :param page_img: Номер страницы изображения.
         :return: Извлеченный текст.
         """
+        logger.info(
+            f"Извлечение текста из PDF файла (представлен в виде текста): {os.path.basename(file_path)}. "
+            f"Страница: {page_img}"
+        )
         reader = PdfReader(file_path)
         page = reader.pages[page_img]
         return re.sub(
@@ -90,7 +164,7 @@ class OCRBase:
             page.extract_text(extraction_mode="layout").strip()
         )
 
-    def get_text_from_image(self, image_path: str):
+    def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         raise NotImplementedError("Recognize method not implemented!")
 
     def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
@@ -112,7 +186,9 @@ class OCRBase:
             if convert_coord:
                 text += self.extract_text_from_pdf(file_path, page)
             else:
-                tuple_obj = self.get_text_from_image(image_path)
+                image_rotated = RotateAdjuster().rotate_image(image_path, page + 1)
+                cv2.imwrite(image_path, image_rotated)
+                tuple_obj = self.get_text_from_image(image_path, page + 1)
                 text += tuple_obj[0]
                 images[page] = tuple_obj[1]
 
@@ -127,13 +203,15 @@ class EasyOCREngine(OCRBase):
         self.x_shift = x_shift
         self.y_shift = y_shift
 
-    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
+    def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         """
         Извлечение координат текста из изображения с использованием easyocr.
         :param image_path: Путь к изображению.
+        :param page_img: Номер страницы изображения.
         :return: Список координат и распознанного текста, изображение с выделенными прямоугольниками.
         """
         image = cv2.imread(image_path, 0)
+        logger.info(f"Извлечение текста из изображения с использованием EasyOCR: {os.path.basename(image_path)}")
         contours = self.ocr.readtext(image, paragraph=True, x_ths=self.x_shift, y_ths=self.y_shift)
         text_coordinates = []
         list_text = []
@@ -146,7 +224,6 @@ class EasyOCREngine(OCRBase):
             text_coordinates.append(((x1, y1, x2, y2), text))
             list_text.append(text)
             cv2.rectangle(image, top_left, bottom_right, (0, 0, 0), 2)
-        cv2.imwrite(f"{image_path}_rect.jpg", image)
 
         return '\n'.join(list_text), image
 
@@ -156,14 +233,16 @@ class TesseractOCREngine(OCRBase):
         super().__init__(lang or ['eng'])
         self.psm = psm
 
-    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
+    def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью Tesseract.
         :param image_path: Путь к изображению.
+        :param page_img: Номер страницы изображения.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         import pytesseract
         image = cv2.imread(image_path, 0)
+        logger.info(f"Извлечение текста из изображения с использованием Tesseract: {os.path.basename(image_path)}")
         data = pytesseract.image_to_data(image, lang=self.lang, config=f"--psm {self.psm}", output_type="dict")
 
         result = []
@@ -188,7 +267,7 @@ class TesseractOCREngine(OCRBase):
             x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
             if data['conf'][i] == -1:
                 cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-        cv2.imwrite(f"{image_path}_rect.jpg", image)
+
         return text, image
 
 
@@ -198,13 +277,15 @@ class PaddleOCREngine(OCRBase):
         from paddleocr import PaddleOCR
         self.ocr = PaddleOCR(lang=lang)
 
-    def get_text_from_image(self, image_path: str) -> Tuple[str, ndarray]:
+    def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью PaddleOCR.
         :param image_path: Путь к изображению.
+        :param page_img: Номер страницы изображения.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         image = cv2.imread(image_path, 0)
+        logger.info(f"Извлечение текста из изображения с использованием PaddleOCR: {os.path.basename(image_path)}")
         result = self.ocr.ocr(image)
         all_text = []
         for line in result:
@@ -224,15 +305,17 @@ class DocTREngine(OCRBase):
         from doctr.models import ocr_predictor
         self.ocr = ocr_predictor(pretrained=True, detect_language=detect_language)
 
-    def get_text_from_image(self, file_path: str) -> Tuple[str, ndarray]:
+    def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         """
         Выполнение OCR с помощью DocTR.
-        :param file_path: Путь к изображению.
+        :param image_path: Путь к изображению.
+        :param page_img: Номер страницы изображения.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         from doctr.io import DocumentFile
-        image = cv2.imread(file_path, 0)
-        doc = DocumentFile.from_images(file_path)
+        image = cv2.imread(image_path, 0)
+        logger.info(f"Извлечение текста из изображения с использованием DocTR: {os.path.basename(image_path)}")
+        doc = DocumentFile.from_images(image_path)
         result = self.ocr(doc)
         text = "\n".join(
             [" ".join([word.value for word in line.words])
@@ -278,6 +361,7 @@ class BaseProcessor:
         :param file_path: Путь к Excel-файлу.
         :return: Содержимое всех листов в виде DataFrame.
         """
+        logger.info("Чтение всех листов из Excel-файла и их объединение в один DataFrame")
         sheets = pd.read_excel(file_path, sheet_name=None)
         dfs = list(sheets.values())
         return pd.concat(dfs, ignore_index=True)
@@ -304,7 +388,7 @@ class BaseProcessor:
             if selected_engine == "EasyOCR" and ocr_class == EasyOCREngine:
                 return ocr_class(lang=self.lang_selected, x_shift=x_shift, y_shift=y_shift)
             elif selected_engine == "TesseractOCR":
-                return ocr_class(lang="+".join(self.lang_selected), psm=psm)
+                return ocr_class(n_threads=4, lang="+".join(self.lang_selected), psm=psm)
             elif selected_engine == "DocTR":
                 return ocr_class(detect_language=True)
             else:
@@ -404,24 +488,32 @@ class PDFProcessor(BaseProcessor):
                 return False
         return True
 
+    def extract_tables_from_file(self):
+        """
+        Извлечение таблиц из PDF файла.
+        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
+        """
+        logger.info("Выполнение OCR и извлечение таблиц из PDF файла")
+        dict_boxes, text = {}, ""
+        path_to_excel = f"{self.file_path}.xlsx"
+        for page, elements in enumerate(self.extract_tables(self.pdf, path_to_excel).values()):
+            for elem in elements:
+                text = self.handle_tables(self.pdf, page, elem, text, dict_boxes)
+        cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
+        df = self.combine_excel_sheets(path_to_excel)
+        return self.pdf.images[0], text, df, path_to_excel
+
     def process(self):
         """
         Основной метод обработки PDF файла.
         :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
         """
-        if self.only_ocr:
-            # Выполнить только OCR и вернуть распознанный текст
-            image, extracted_text = self.ocr.perform_ocr(self.file_path)
-            return image, extracted_text, pd.DataFrame(), ""
-        else:
-            dict_boxes, text = {}, ""
-            path_to_excel = f"{self.file_path}.xlsx"
-            for page, elements in enumerate(self.extract_tables(self.pdf, path_to_excel).values()):
-                for elem in elements:
-                    text = self.handle_tables(self.pdf, page, elem, text, dict_boxes)
-            cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
-            df = self.combine_excel_sheets(path_to_excel)
-            return self.pdf.images[0], text, df, path_to_excel
+        if not self.only_ocr:
+            return self.extract_tables_from_file()
+        # Выполнить только OCR и вернуть распознанный текст
+        logger.info("Выполнение только OCR без извлечения таблиц")
+        image, extracted_text = self.ocr.perform_ocr(self.file_path)
+        return image, extracted_text, pd.DataFrame(), ""
 
 
 class ImageProcessor(BaseProcessor):
@@ -450,20 +542,28 @@ class ImageProcessor(BaseProcessor):
         )
         self.img = Image(file_path, detect_rotation=True)
 
+    def extract_tables_from_file(self):
+        """
+        Извлечение таблиц из изображения.
+        :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
+        """
+        logger.info("Выполнение OCR и извлечение таблиц из изображения")
+        dict_boxes, text = {}, ""
+        path_to_excel = f"{self.file_path}.xlsx"
+        for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
+            text = self.handle_tables(self.img, page, elem, text, dict_boxes)
+        cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
+        df = self.combine_excel_sheets(path_to_excel)
+        return self.img.images[0], text, df, path_to_excel
+
     def process(self):
         """
         Основной метод обработки изображения.
         :return: Изображение с выделенными прямоугольниками, текст из таблиц, DataFrame, путь к Excel-файлу.
         """
-        if self.only_ocr:
-            # Выполнить только OCR и вернуть распознанный текст
-            image, extracted_text = self.ocr.perform_ocr(self.file_path)
-            return image, extracted_text, pd.DataFrame(), ""
-        else:
-            dict_boxes, text = {}, ""
-            path_to_excel = f"{self.file_path}.xlsx"
-            for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
-                text = self.handle_tables(self.img, page, elem, text, dict_boxes)
-            cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
-            df = self.combine_excel_sheets(path_to_excel)
-            return self.img.images[0], text, df, path_to_excel
+        if not self.only_ocr:
+            return self.extract_tables_from_file()
+        # Выполнить только OCR и вернуть распознанный текст
+        logger.info("Выполнение только OCR без извлечения таблиц")
+        image, extracted_text = self.ocr.perform_ocr(self.file_path)
+        return image, extracted_text, pd.DataFrame(), ""
