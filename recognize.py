@@ -1,15 +1,15 @@
 import os
+import re
 import cv2
 import pymupdf
 import numpy as np
 import pandas as pd
 from cv2 import Mat
 from numpy import ndarray
+from pypdf import PdfReader
 from pandas import DataFrame
 from pdf2image import convert_from_path
 from img2table.document import Image, PDF
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTTextBoxHorizontal
 from typing import Tuple, List, Optional, Union
 from img2table.ocr import EasyOCR, TesseractOCR, PaddleOCR, DocTR
 
@@ -82,16 +82,13 @@ class OCRBase:
         :param page_img: Номер страницы изображения.
         :return: Извлеченный текст.
         """
-        extracted_text = ""
-        for page_pdf, page_layout in enumerate(extract_pages(file_path)):
-            if page_pdf != page_img:
-                continue
-            for element in page_layout:
-                if isinstance(element, LTTextBoxHorizontal):
-                    for text_line in element:
-                        line_text = text_line.get_text()
-                        extracted_text += line_text
-        return extracted_text.strip()
+        reader = PdfReader(file_path)
+        page = reader.pages[page_img]
+        return re.sub(
+            r'(\s+|\n+)',
+            lambda match: match.group()[0]*1,
+            page.extract_text(extraction_mode="layout").strip()
+        )
 
     def get_text_from_image(self, image_path: str):
         raise NotImplementedError("Recognize method not implemented!")
