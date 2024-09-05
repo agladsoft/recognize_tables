@@ -386,10 +386,10 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
 
     excel_link_display = gr.HTML()
     data_table = gr.DataFrame(
-        interactive=False,
+        interactive=True,
         wrap=True,
     )
-    extracted_text_display = gr.Textbox(label="Извлеченный текст", show_copy_button=True)
+    extracted_text_display = gr.Textbox(label="Извлеченный текст", show_copy_button=True, interactive=True)
 
     pdf_process_button.click(
         fn=process_pdf,
