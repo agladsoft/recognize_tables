@@ -388,7 +388,7 @@ class BaseProcessor:
             if selected_engine == "EasyOCR" and ocr_class == EasyOCREngine:
                 return ocr_class(lang=self.lang_selected, x_shift=x_shift, y_shift=y_shift)
             elif selected_engine == "TesseractOCR":
-                return ocr_class(n_threads=4, lang="+".join(self.lang_selected), psm=psm)
+                return ocr_class(lang="+".join(self.lang_selected), psm=psm)
             elif selected_engine == "DocTR":
                 return ocr_class(detect_language=True)
             else:
