@@ -49,7 +49,8 @@ def process_pdf(
         confidence: int,
         x_shift: float,
         y_shift: float,
-        psm: int
+        psm: int,
+        is_multiprocess: bool = False
 ) -> Tuple[gr.update, str, DataFrame, str]:
     """
     Обработка PDF файла.
@@ -62,6 +63,7 @@ def process_pdf(
     :param x_shift: Смещение по x в EasyOCR.
     :param y_shift: Смещение по y в EasyOCR.
     :param psm: Настройка для распознавания текста в Tesseract.
+    :param is_multiprocess: Флаг мультипроцессинга.
     :return: Обработанное изображение, извлеченный текст, DataFrame, ссылка к Excel-файлу.
     """
     image, extracted_text, dataframe, excel_file_path = PDFProcessor(
@@ -73,7 +75,8 @@ def process_pdf(
         confidence,
         x_shift,
         y_shift,
-        psm
+        psm,
+        is_multiprocess
     ).process()
     # Формирование ссылки на excel файл
     excel_link = excel_link_template.format(excel_file_path, os.path.basename(excel_file_path))
@@ -211,37 +214,47 @@ def update_languages(selected_engine: str) -> gr.update:
         )
 
 
-def update_sliders_interactivity(selected_engine: str, only_ocr: bool, is_active_table_structure: bool):
+def update_sliders_interactivity(
+        selected_engine: str,
+        only_ocr: bool,
+        is_active_table_structure: bool,
+        is_multiprocess: bool
+) -> Tuple[gr.update, gr.update, gr.update, gr.update, gr.update, gr.update]:
     """
     Обновляет активность слайдеров x_shift_slider и y_shift_slider.
     :param selected_engine: Выбранный движок.
     :param only_ocr: Флажок простого OCR.
     :param is_active_table_structure: Флажок наличия структуры у таблицы.
+    :param is_multiprocess: Флажок мультипроцессинга.
     :return: Обновление активности слайдеров.
     """
     # Определяем активность слайдеров на основе выбранного движка и флага только OCR
     active_settings = {
-        ("EasyOCR", True): (True, False, False, False),
-        ("TesseractOCR", True): (False, True, False, False),
-        ("TesseractOCR", False): (False, True, True, True),
-        ("PaddleOCR", True): (False, False, False, False),
-        ("DocTR", True): (False, False, False, False),
-        (None, True): (False, False, False, False),
+        ("EasyOCR", True): (True, False, False, False, False),
+        ("TesseractOCR", True): (False, True, False, False, True),
+        ("TesseractOCR", False): (False, True, True, True, False),
+        ("PaddleOCR", True): (False, False, False, False, False),
+        ("DocTR", True): (False, False, False, False, False),
+        (None, True): (False, False, False, False, False),
     }
 
     # По умолчанию активируем все слайдеры
-    default_settings = (False, False, True, True)
+    default_settings = (False, False, True, True, False)
 
     # Определяем активность слайдеров
-    is_active_easy_ocr, is_active_tesseract, is_active_confidence, is_active_table_structure_inter = \
-        active_settings.get((selected_engine, only_ocr), default_settings)
+    is_active_easy_ocr, \
+        is_active_tesseract, \
+        is_active_confidence, \
+        is_active_table_structure_inter, \
+        is_active_multiprocess = active_settings.get((selected_engine, only_ocr), default_settings)
 
     return (
         gr.update(interactive=is_active_easy_ocr),
         gr.update(interactive=is_active_easy_ocr),
         gr.update(interactive=is_active_tesseract),
         gr.update(interactive=is_active_confidence),
-        gr.update(interactive=is_active_table_structure_inter, value=is_active_table_structure)
+        gr.update(interactive=is_active_table_structure_inter, value=is_active_table_structure),
+        gr.update(interactive=is_active_multiprocess, value=is_multiprocess)
     )
 
 
@@ -283,6 +296,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
                 multiselect=True
             )
         with gr.Column():
+            # Checkbox для мультипроцессинга
+            multiprocessing_checkbox = gr.Checkbox(
+                value=False,
+                show_label=True,
+                info="Если хотите быстрее распознавать текст, установите галочку",
+                label="Использовать все процессоры"
+            )
             # Checkbox для определения наличия структуры у таблицы
             table_structure_checkbox = gr.Checkbox(
                 value=True,
@@ -343,13 +363,27 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
     engine.change(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr, table_structure_checkbox],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
+        outputs=[
+            x_shift_slider,
+            y_shift_slider,
+            psm_slider,
+            min_confidence,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ]
     )
 
     ocr.change(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr, table_structure_checkbox],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
+        outputs=[
+            x_shift_slider,
+            y_shift_slider,
+            psm_slider,
+            min_confidence,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ]
     )
 
     language_selector.change(
@@ -396,12 +430,14 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
         inputs=[
             pdf_input,
             table_structure_checkbox,
-            engine, language_selector,
+            engine,
+            language_selector,
             ocr,
             min_confidence,
             x_shift_slider,
             y_shift_slider,
-            psm_slider
+            psm_slider,
+            multiprocessing_checkbox
         ],
         outputs=[output_image_display, extracted_text_display, data_table, excel_link_display]
     )
@@ -450,7 +486,14 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
     demo.load(
         fn=update_sliders_interactivity,
         inputs=[engine, ocr, table_structure_checkbox],
-        outputs=[x_shift_slider, y_shift_slider, psm_slider, min_confidence, table_structure_checkbox]
+        outputs=[
+            x_shift_slider,
+            y_shift_slider,
+            psm_slider,
+            min_confidence,
+            table_structure_checkbox,
+            multiprocessing_checkbox
+        ]
     )
 
 

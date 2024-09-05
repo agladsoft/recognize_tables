@@ -5,7 +5,7 @@ import math
 import pymupdf
 import numpy as np
 import pandas as pd
-from cv2 import Mat
+from multiprocessing import Pool
 from loguru import logger
 from scipy import ndimage
 from numpy import ndarray
@@ -167,32 +167,55 @@ class OCRBase:
     def get_text_from_image(self, image_path: str, page_img: int) -> Tuple[str, ndarray]:
         raise NotImplementedError("Recognize method not implemented!")
 
-    def perform_ocr(self, file_path) -> Tuple[Mat | ndarray, str]:
+    def process_page(self, args) -> Tuple[str, ndarray]:
+        """
+        Функция для обработки одной страницы.
+        :param args: Кортеж с аргументами (file_path, page, image, is_pdf, convert_coord)
+        :return: Распознанный текст и обработанное изображение.
+        """
+        file_path, page, image, is_pdf, convert_coord = args
+        image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
+
+        if is_pdf:
+            image.save(image_path, format='JPEG')
+
+        if convert_coord:
+            text = self.extract_text_from_pdf(file_path, page)
+            return text, image
+        else:
+            image_rotated = RotateAdjuster().rotate_image(image_path, page + 1)
+            cv2.imwrite(image_path, image_rotated)
+            tuple_obj = self.get_text_from_image(image_path, page + 1)
+            return tuple_obj[0], tuple_obj[1]
+
+    def perform_ocr(self, file_path, is_multiprocess) -> Tuple[ndarray, str]:
         """
         Выполнение OCR с помощью движка.
         :param file_path: Путь к изображению.
+        :param is_multiprocess: Использовать ли мультипроцессинг.
         :return: Изображение с выделенными прямоугольниками, распознанный текст.
         """
         ext = os.path.splitext(file_path)[-1].lower()
         is_pdf = ext == ".pdf"
         images: List[Image.images] | List[ndarray] = convert_from_path(file_path) if is_pdf else [cv2.imread(file_path)]
         convert_coord = is_pdf and not PDFProcessor.is_image_based_pdf(file_path)
-        text = ""
 
-        for page, image in enumerate(images):
-            image_path = f'{os.path.splitext(file_path)[0]}_{page}.jpg' if is_pdf else file_path
-            if is_pdf:
-                image.save(image_path, format='JPEG')
-            if convert_coord:
-                text += self.extract_text_from_pdf(file_path, page)
-            else:
-                image_rotated = RotateAdjuster().rotate_image(image_path, page + 1)
-                cv2.imwrite(image_path, image_rotated)
-                tuple_obj = self.get_text_from_image(image_path, page + 1)
-                text += tuple_obj[0]
-                images[page] = tuple_obj[1]
+        # Подготовка аргументов для обработки
+        tasks = [(file_path, page, image, is_pdf, convert_coord) for page, image in enumerate(images)]
 
-        return images[0], text
+        if is_multiprocess:
+            # Используем пул процессов для параллельной обработки страниц
+            with Pool(processes=os.cpu_count()) as pool:
+                results = pool.map(self.process_page, tasks)
+        else:
+            # Последовательная обработка страниц
+            results = [self.process_page(task) for task in tasks]
+
+        # Собираем результаты
+        text = ''.join([result[0] for result in results])
+        processed_images = [result[1] for result in results]
+
+        return processed_images[0], text
 
 
 class EasyOCREngine(OCRBase):
@@ -456,7 +479,8 @@ class PDFProcessor(BaseProcessor):
             min_confidence: int = 50,
             x_shift: float = 1.0,
             y_shift: float = 0.6,
-            psm: int = 11
+            psm: int = 11,
+            is_multiprocess: bool = False
     ):
         super().__init__(
             file_path, 
@@ -470,6 +494,7 @@ class PDFProcessor(BaseProcessor):
             psm
         )
         self.pdf = PDF(file_path, detect_rotation=True, pdf_text_extraction=True)
+        self.is_multiprocess = is_multiprocess
         if not self.is_image_based_pdf(file_path) and not only_ocr:
             self.ocr = None
 
@@ -512,7 +537,7 @@ class PDFProcessor(BaseProcessor):
             return self.extract_tables_from_file()
         # Выполнить только OCR и вернуть распознанный текст
         logger.info("Выполнение только OCR без извлечения таблиц")
-        image, extracted_text = self.ocr.perform_ocr(self.file_path)
+        image, extracted_text = self.ocr.perform_ocr(self.file_path, self.is_multiprocess)
         return image, extracted_text, pd.DataFrame(), ""
 
 
@@ -527,7 +552,8 @@ class ImageProcessor(BaseProcessor):
             min_confidence: int = 50,
             x_shift: float = 1.0,
             y_shift: float = 0.6,
-            psm: int = 11
+            psm: int = 11,
+            is_multiprocess: bool = False
     ):
         super().__init__(
             file_path,
@@ -541,6 +567,7 @@ class ImageProcessor(BaseProcessor):
             psm
         )
         self.img = Image(file_path, detect_rotation=True)
+        self.is_multiprocess = is_multiprocess
 
     def extract_tables_from_file(self):
         """
@@ -565,5 +592,5 @@ class ImageProcessor(BaseProcessor):
             return self.extract_tables_from_file()
         # Выполнить только OCR и вернуть распознанный текст
         logger.info("Выполнение только OCR без извлечения таблиц")
-        image, extracted_text = self.ocr.perform_ocr(self.file_path)
+        image, extracted_text = self.ocr.perform_ocr(self.file_path, self.is_multiprocess)
         return image, extracted_text, pd.DataFrame(), ""
