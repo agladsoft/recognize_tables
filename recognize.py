@@ -5,12 +5,12 @@ import math
 import pymupdf
 import numpy as np
 import pandas as pd
-from multiprocessing import Pool
 from loguru import logger
 from scipy import ndimage
 from numpy import ndarray
 from pypdf import PdfReader
 from pandas import DataFrame
+from multiprocessing import Pool
 from collections import namedtuple
 from pdf2image import convert_from_path
 from img2table.document import Image, PDF
