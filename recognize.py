@@ -154,7 +154,7 @@ class OCRBase:
         """
         logger.info(
             f"Извлечение текста из PDF файла (представлен в виде текста): {os.path.basename(file_path)}. "
-            f"Страница: {page_img}"
+            f"Страница: {page_img + 1}"
         )
         reader = PdfReader(file_path)
         page = reader.pages[page_img]
