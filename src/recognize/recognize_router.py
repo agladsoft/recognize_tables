@@ -106,7 +106,11 @@ def get_text_from_image(
             psm=psm,
             is_multiprocess=is_multiprocess
         )
-        return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
+        return RecognitionResponse(
+            text=result[1],
+            dataframe=[{table_name: table.to_dict()} for table_name, table in result[2].items()],
+            excel_link=result[3]
+        )
     elif ext in [".jpg", ".jpeg", ".png"]:
         result = process_image(
             image_data={"background": file_path},
@@ -119,6 +123,10 @@ def get_text_from_image(
             y_shift=y_shift,
             psm=psm
         )
-        return RecognitionResponse(text=result[1], dataframe=result[2].to_dict(), excel_link=result[3])
+        return RecognitionResponse(
+            text=result[1],
+            dataframe=[{table_name: table.to_dict()} for table_name, table in result[2].items()],
+            excel_link=result[3]
+        )
     else:
         raise FileNotFoundError("Файл не является изображением или PDF")

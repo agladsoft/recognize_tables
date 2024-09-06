@@ -24,7 +24,6 @@ nvidia-cusparse-cu12==12.1.0.106
 nvidia-nccl-cu12==2.20.5
 nvidia-nvjitlink-cu12==12.6.20
 nvidia-nvtx-cu12==12.1.105
-opencv-python==4.10.0.84
 opencv-python-headless==4.10.0.84
 opencv-contrib-python==4.10.0.84
 opencv-contrib-python-headless==4.10.0.84
@@ -69,3 +68,4 @@ uvicorn==0.30.6
 requests==2.32.3
 pypdf==4.3.1
 loguru==0.7.2
+opencv-python==4.10.0.84

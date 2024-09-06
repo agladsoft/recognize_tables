@@ -9,7 +9,6 @@ from loguru import logger
 from scipy import ndimage
 from numpy import ndarray
 from pypdf import PdfReader
-from pandas import DataFrame
 from multiprocessing import Pool
 from collections import namedtuple
 from pdf2image import convert_from_path
@@ -377,18 +376,6 @@ class BaseProcessor:
         self.min_confidence = min_confidence
         self.ocr = self.initialize_ocr(selected_engine, x_shift, y_shift, psm)
 
-    @staticmethod
-    def combine_excel_sheets(file_path: str) -> DataFrame:
-        """
-        Чтение всех листов из Excel-файла и их объединение в один DataFrame.
-        :param file_path: Путь к Excel-файлу.
-        :return: Содержимое всех листов в виде DataFrame.
-        """
-        logger.info("Чтение всех листов из Excel-файла и их объединение в один DataFrame")
-        sheets = pd.read_excel(file_path, sheet_name=None)
-        dfs = list(sheets.values())
-        return pd.concat(dfs, ignore_index=True)
-
     def initialize_ocr(self, selected_engine: str, x_shift: float, y_shift: float, psm: int):
         """
         Инициализация OCR-движка.
@@ -525,8 +512,7 @@ class PDFProcessor(BaseProcessor):
             for elem in elements:
                 text = self.handle_tables(self.pdf, page, elem, text, dict_boxes)
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
-        df = self.combine_excel_sheets(path_to_excel)
-        return self.pdf.images[0], text, df, path_to_excel
+        return self.pdf.images[0], text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
 
     def process(self):
         """
@@ -538,7 +524,7 @@ class PDFProcessor(BaseProcessor):
         # Выполнить только OCR и вернуть распознанный текст
         logger.info("Выполнение только OCR без извлечения таблиц")
         image, extracted_text = self.ocr.perform_ocr(self.file_path, self.is_multiprocess)
-        return image, extracted_text, pd.DataFrame(), ""
+        return image, extracted_text, {}, ""
 
 
 class ImageProcessor(BaseProcessor):
@@ -580,8 +566,7 @@ class ImageProcessor(BaseProcessor):
         for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
             text = self.handle_tables(self.img, page, elem, text, dict_boxes)
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
-        df = self.combine_excel_sheets(path_to_excel)
-        return self.img.images[0], text, df, path_to_excel
+        return self.img.images[0], text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
 
     def process(self):
         """
@@ -593,4 +578,4 @@ class ImageProcessor(BaseProcessor):
         # Выполнить только OCR и вернуть распознанный текст
         logger.info("Выполнение только OCR без извлечения таблиц")
         image, extracted_text = self.ocr.perform_ocr(self.file_path, self.is_multiprocess)
-        return image, extracted_text, pd.DataFrame(), ""
+        return image, extracted_text, {}, ""
