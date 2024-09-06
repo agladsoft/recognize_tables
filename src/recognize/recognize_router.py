@@ -108,8 +108,8 @@ def get_text_from_image(
             is_multiprocess=is_multiprocess
         )
         return RecognitionResponse(
-            text=result[1],
-            tables=[{table_name: table.to_dict()} for table_name, table in result[2].items()]
+            text=result[0],
+            tables=[{table_name: table.to_dict()} for table_name, table in result[1].items()]
         )
     elif ext in [".jpg", ".jpeg", ".png"]:
         result = process_image(
@@ -124,8 +124,8 @@ def get_text_from_image(
             psm=psm
         )
         return RecognitionResponse(
-            text=result[1],
-            tables=[{table_name: table.to_dict()} for table_name, table in result[2].items()]
+            text=result[0],
+            tables=[{table_name: table.to_dict()} for table_name, table in result[1].items()]
         )
     else:
         raise FileNotFoundError("Файл не является изображением или PDF")

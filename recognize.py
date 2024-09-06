@@ -187,7 +187,7 @@ class OCRBase:
             tuple_obj = self.get_text_from_image(image_path, page + 1)
             return tuple_obj[0], tuple_obj[1]
 
-    def perform_ocr(self, file_path, is_multiprocess) -> Tuple[ndarray, str]:
+    def perform_ocr(self, file_path, is_multiprocess) -> Tuple[List[ndarray], str]:
         """
         Выполнение OCR с помощью движка.
         :param file_path: Путь к изображению.
@@ -214,7 +214,7 @@ class OCRBase:
         text = ''.join([result[0] for result in results])
         processed_images = [result[1] for result in results]
 
-        return processed_images[0], text
+        return processed_images, text
 
 
 class EasyOCREngine(OCRBase):
@@ -512,7 +512,7 @@ class PDFProcessor(BaseProcessor):
             for elem in elements:
                 text = self.handle_tables(self.pdf, page, elem, text, dict_boxes)
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.pdf.images[0])
-        return self.pdf.images[0], text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
+        return self.pdf.images, text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
 
     def process(self):
         """
@@ -566,7 +566,7 @@ class ImageProcessor(BaseProcessor):
         for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
             text = self.handle_tables(self.img, page, elem, text, dict_boxes)
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
-        return self.img.images[0], text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
+        return self.img.images, text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
 
     def process(self):
         """

@@ -58,6 +58,24 @@ def get_tables(tables) -> gr.update:
     return updates
 
 
+def get_images(images) -> gr.update:
+    """
+    Получаем таблицы и добавляем их в Tabs.
+    :param images: Таблицы с листами.
+    :return: Заполненные данные в таблицах.
+    """
+    # Если вкладок больше, чем изображений, скрываем оставшиеся вкладки
+    extra_tabs = num_tabs - len(images)
+
+    # Создаем обновления: заполняем только для тех вкладок, которые имеют данные
+    updates = [gr.update(value=value, label="Результат обработки", type="numpy") for value in images]
+    updates += [gr.update(value=None) for _ in range(extra_tabs)]
+    updates += [gr.update(label=f"Страница {i + 1}", visible=True) for i in range(len(images))]
+    updates += [gr.update(visible=False) for _ in range(extra_tabs)]
+
+    return updates
+
+
 def get_engines() -> List[str]:
     """
     Получение списка движков.
@@ -168,7 +186,7 @@ def process_pdf(
         y_shift: float,
         psm: int,
         is_multiprocess: bool = False
-) -> Tuple[gr.update, str, dict, str, gr.update]:
+) -> Tuple[str, dict, str, gr.update, gr.update, gr.update, gr.update]:
     """
     Обработка PDF файла.
     :param pdf_file: PDF файл.
@@ -183,7 +201,7 @@ def process_pdf(
     :param is_multiprocess: Флаг мультипроцессинга.
     :return: Обработанное изображение, извлеченный текст, DataFrame, ссылка к Excel-файлу.
     """
-    image, extracted_text, tables, excel_file_path = PDFProcessor(
+    images, extracted_text, tables, excel_file_path = PDFProcessor(
         pdf_file,
         not is_table_bordered,
         selected_engine,
@@ -197,7 +215,15 @@ def process_pdf(
     ).process()
     # Формирование ссылки на excel файл
     excel_link = excel_link_template.format(excel_file_path, os.path.basename(excel_file_path))
-    return gr.update(value=image), extracted_text, tables, excel_link, *get_tables(tables)
+    return (
+        extracted_text,
+        tables,
+        excel_link,
+        gr.update(visible=False),
+        gr.update(visible=False),
+        *get_images(images),
+        *get_tables(tables)
+    )
 
 
 def process_image(
@@ -210,7 +236,7 @@ def process_image(
         x_shift: float,
         y_shift: float,
         psm: int
-) -> Tuple[gr.update, str, dict, str, gr.update]:
+) -> Tuple[str, dict, str, gr.update, gr.update, gr.update, gr.update]:
     """
     Обработка изображения.
     :param image_data: Изображение.
@@ -224,7 +250,7 @@ def process_image(
     :param psm: Настройка для распознавания текста в Tesseract.
     :return: Обработанное изображение, извлеченный текст, DataFrame, ссылка к Excel-файлу.
     """
-    image, extracted_text, tables, excel_file_path = ImageProcessor(
+    images, extracted_text, tables, excel_file_path = ImageProcessor(
         image_data["background"],
         not is_table_bordered,
         selected_engine,
@@ -237,7 +263,15 @@ def process_image(
     ).process()
     # Формирование ссылки на excel файл
     excel_link = excel_link_template.format(excel_file_path, os.path.basename(excel_file_path))
-    return gr.update(value=image), extracted_text, tables, excel_link, *get_tables(tables)
+    return (
+        extracted_text,
+        tables,
+        excel_link,
+        gr.update(visible=False),
+        gr.update(visible=False),
+        *get_images(images),
+        *get_tables(tables)
+    )
 
 
 def process_image_with_rectangles(
@@ -250,7 +284,7 @@ def process_image_with_rectangles(
         x_shift: float,
         y_shift: float,
         psm: int
-) -> Tuple[gr.update, str, dict, str, gr.update]:
+) -> Tuple[str, dict, str, gr.update, gr.update, gr.update, gr.update]:
     """
     Чтение изображения и рисование прямоугольников.
     :param image_data: Изображение.
@@ -272,7 +306,7 @@ def process_image_with_rectangles(
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
 
     # Обработка изображения после добавления прямоугольников
-    image, extracted_text, tables, excel_file_path = ImageProcessor(
+    images, extracted_text, tables, excel_file_path = ImageProcessor(
         image_data["image"],
         not is_table_bordered,
         selected_engine,
@@ -285,18 +319,27 @@ def process_image_with_rectangles(
     ).process()
     # Формирование ссылки на excel файл
     excel_link = excel_link_template.format(excel_file_path, os.path.basename(excel_file_path))
-    return gr.update(value=image), extracted_text, tables, excel_link, *get_tables(tables)
+    return (
+        extracted_text,
+        tables,
+        excel_link,
+        gr.update(visible=False),
+        gr.update(visible=False),
+        *get_images(images),
+        *get_tables(tables)
+    )
 
 
 with gr.Blocks(title="Распознавание данных", css=css) as demo:
     # Количество вкладок, которое может изменяться
     num_tabs = 10  # Например, у нас 10 вкладок, но таблиц только 6
-    vertical_offset = 13  # Смещение вниз в пикселях
-    tables_ = gr.State(None)
+    _tables = gr.State(None)
 
     # Динамически создаем вкладки
-    tabs = []
+    tabs_df = []
     dataframes = []
+    tabs_img = []
+    images_ = []
 
     with gr.Row():
         logo_svg = "<img src='https://i.ibb.co/zJvk1NV/OCR-3.png' width='100px' style='display: inline'>"
@@ -402,8 +445,14 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
                         image_rect_process_button = gr.Button(value="Распознать данные из JPG")
 
         with gr.Column():
-            gr.HTML(f'<div style="margin-top:{vertical_offset}px;"></div>')  # Добавление отступа сверху
-            output_image_display = gr.Image(label="Результат обработки", type="numpy")
+            with gr.Tabs() as tab_group:
+                for _ in range(num_tabs):
+                    with gr.TabItem(visible=False) as tab:
+                        image_ = gr.Image(label="Результат обработки", type="numpy")
+                        tabs_img.append(tab)
+                        images_.append(image_)
+                with gr.TabItem(visible=True, label="Страница 1") as tab_test:
+                    image_test = gr.Image(label="Результат обработки", interactive=False)
 
     excel_link_display = gr.HTML()
 
@@ -411,7 +460,7 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
         for _ in range(num_tabs):
             with gr.TabItem(visible=False) as tab:
                 df = gr.DataFrame()
-                tabs.append(tab)
+                tabs_df.append(tab)
                 dataframes.append(df)
 
     extracted_text_display = gr.Textbox(label="Извлеченный текст", show_copy_button=True, interactive=True)
@@ -479,7 +528,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
             psm_slider,
             multiprocessing_checkbox
         ],
-        outputs=[output_image_display, extracted_text_display, tables_, excel_link_display] + dataframes + tabs
+        outputs=[
+            extracted_text_display,
+            _tables,
+            excel_link_display,
+            tab_test,
+            image_test
+        ] + images_ + tabs_img + dataframes + tabs_df
     )
 
     # noinspection PyTypeChecker
@@ -496,7 +551,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
             y_shift_slider,
             psm_slider
         ],
-        outputs=[output_image_display, extracted_text_display, tables_, excel_link_display] + dataframes + tabs
+        outputs=[
+            extracted_text_display,
+            _tables,
+            excel_link_display,
+            tab_test,
+            image_test
+        ] + images_ + tabs_img + dataframes + tabs_df
     )
 
     # noinspection PyTypeChecker
@@ -513,7 +574,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
             y_shift_slider,
             psm_slider
         ],
-        outputs=[output_image_display, extracted_text_display, tables_, excel_link_display] + dataframes + tabs
+        outputs=[
+            extracted_text_display,
+            _tables,
+            excel_link_display,
+            tab_test,
+            image_test
+        ] + images_ + tabs_img + dataframes + tabs_df
     )
 
     # noinspection PyTypeChecker
@@ -525,7 +592,13 @@ with gr.Blocks(title="Распознавание данных", css=css) as demo
         label="Примеры",
         fn=process_image,
         inputs=[image_input, table_structure_checkbox, language_selector],
-        outputs=[output_image_display, extracted_text_display, tables_, excel_link_display] + dataframes + tabs
+        outputs=[
+            extracted_text_display,
+            _tables,
+            excel_link_display,
+            tab_test,
+            image_test
+        ] + images_ + tabs_img + dataframes + tabs_df
     )
 
     demo.load(
