@@ -33,7 +33,7 @@ response = requests.post(url, params=params, files=files)
 
 # Проверка ответа сервера
 if response.status_code == 200:
-    print(response.json()["text"])  # Если ответ в формате JSON
+    print(response.json()["text"], response.json()["tables"])  # Если ответ в формате JSON
 else:
     print(f"Ошибка загрузки: {response.status_code}")
     print(response.text)

@@ -1,13 +1,13 @@
 import os
-import logging
-from typing import List, Union, Dict, Any
-from fastapi import APIRouter, UploadFile, File, Query, HTTPException
+from loguru import logger
+from typing import List, Union
 from pydantic import BaseModel
+from fastapi import APIRouter, UploadFile, File, Query, HTTPException
 
 from app import process_pdf, process_image, get_engines, get_supported_languages
 
 recognize_router = APIRouter()
-FILES_DIR: str = "."
+FILES_DIR: str = "/tmp/gradio/files"
 
 
 def validate_multiprocessing(selected_engine: str, is_multiprocess: bool):
@@ -55,6 +55,8 @@ def validate_languages(selected_languages: Union[str, List[str]], selected_engin
 def save_files(file: UploadFile) -> str:
     if file.filename is None or file.filename == "":
         raise FileNotFoundError("Файл не был загружен")
+    elif not os.path.exists(FILES_DIR):
+        os.makedirs(FILES_DIR)
     file_location = os.path.join(FILES_DIR, file.filename)
     with open(file_location, "wb+") as file_object:
         file_object.write(file.file.read())
@@ -63,8 +65,7 @@ def save_files(file: UploadFile) -> str:
 
 class RecognitionResponse(BaseModel):
     text: str
-    dataframe: Dict[str, Any]
-    excel_link: str
+    tables: List[dict]
 
 
 @recognize_router.post("/recognize", tags=["Recognize"])
@@ -80,7 +81,7 @@ def get_text_from_image(
         y_shift: float = Query(0.6, description="Сдвиг по Y для EasyOCR"),
         psm: int = Query(11, description="PSM для Tesseract")
 ):
-    logging.info(f"Полученный файл: {file.filename}")
+    logger.info(f"Полученный файл: {file.filename}")
 
     # Валидация языков на основе выбранного движка
     selected_languages = validate_languages(selected_languages, selected_engine)
@@ -108,8 +109,7 @@ def get_text_from_image(
         )
         return RecognitionResponse(
             text=result[1],
-            dataframe=[{table_name: table.to_dict()} for table_name, table in result[2].items()],
-            excel_link=result[3]
+            tables=[{table_name: table.to_dict()} for table_name, table in result[2].items()]
         )
     elif ext in [".jpg", ".jpeg", ".png"]:
         result = process_image(
@@ -125,8 +125,7 @@ def get_text_from_image(
         )
         return RecognitionResponse(
             text=result[1],
-            dataframe=[{table_name: table.to_dict()} for table_name, table in result[2].items()],
-            excel_link=result[3]
+            tables=[{table_name: table.to_dict()} for table_name, table in result[2].items()]
         )
     else:
         raise FileNotFoundError("Файл не является изображением или PDF")
