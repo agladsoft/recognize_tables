@@ -304,6 +304,7 @@ def process_image_with_rectangles(
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
         # Рисуем прямоугольник
         cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    cv2.imwrite(image_data["image"], image)
 
     # Обработка изображения после добавления прямоугольников
     images, extracted_text, tables, excel_file_path = ImageProcessor(
