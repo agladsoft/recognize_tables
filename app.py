@@ -48,9 +48,12 @@ def get_tables(tables) -> gr.update:
     """
     # Если вкладок больше, чем таблиц, скрываем оставшиеся вкладки
     extra_tabs = num_tabs - len(tables)
+    tables_list = list(tables.values())
+    if extra_tabs < 0:
+        tables_list = list(tables.values())[:num_tabs]
 
     # Создаем обновления: заполняем только для тех вкладок, которые имеют данные
-    updates = [gr.update(value=value, interactive=True, wrap=True) for value in tables.values()]
+    updates = [gr.update(value=value, interactive=True, wrap=True) for value in tables_list]
     updates += [gr.update(value=pd.DataFrame()) for _ in range(extra_tabs)]
     updates += [gr.update(label=key, visible=True) for key in tables]
     updates += [gr.update(visible=False) for _ in range(extra_tabs)]
@@ -66,6 +69,8 @@ def get_images(images) -> gr.update:
     """
     # Если вкладок больше, чем изображений, скрываем оставшиеся вкладки
     extra_tabs = num_tabs - len(images)
+    if extra_tabs < 0:
+        images = images[:num_tabs]
 
     # Создаем обновления: заполняем только для тех вкладок, которые имеют данные
     updates = [gr.update(value=value, label="Результат обработки", type="numpy") for value in images]
