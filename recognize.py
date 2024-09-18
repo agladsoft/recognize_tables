@@ -563,8 +563,8 @@ class ImageProcessor(BaseProcessor):
         logger.info("Выполнение OCR и извлечение таблиц из изображения")
         dict_boxes, text = {}, ""
         path_to_excel = f"{self.file_path}.xlsx"
-        for page, elem in enumerate(self.extract_tables(self.img, path_to_excel)):
-            text = self.handle_tables(self.img, page, elem, text, dict_boxes)
+        for elem in self.extract_tables(self.img, path_to_excel):
+            text = self.handle_tables(self.img, 0, elem, text, dict_boxes)
         cv2.imwrite(f"{self.file_path}_rect.jpg", self.img.images[0])
         return self.img.images, text, pd.read_excel(path_to_excel, sheet_name=None, dtype=str), path_to_excel
 
